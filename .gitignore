@@ -24,6 +24,8 @@ eclipse
 run
 run-server/
 run-data/
+run-gametest/
+work/
 logs/
 *.log
 .vscode/
