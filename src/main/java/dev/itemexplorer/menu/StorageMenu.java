@@ -28,6 +28,7 @@ public final class StorageMenu extends AbstractContainerMenu {
     private String message = "";
     private long actionTick = -1;
     private int actionsThisTick;
+    private boolean closed;
     private CompoundTag clientView = new CompoundTag();
 
     public StorageMenu(int id, Inventory inventory, FriendlyByteBuf data) {
@@ -65,7 +66,9 @@ public final class StorageMenu extends AbstractContainerMenu {
     @Override
     public boolean stillValid(Player player) {
         if (blockEntity == null) return player.level().isClientSide;
-        return !player.isSpectator() && !blockEntity.isRemoved()
+        return !closed && player == this.player && player.containerMenu == this
+                && player.level() == blockEntity.getLevel() && !player.isSpectator() && !blockEntity.isRemoved()
+                && player.level().hasChunkAt(pos)
                 && player.level().getBlockEntity(pos) == blockEntity
                 && player.distanceToSqr(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5) <= 64;
     }
@@ -79,6 +82,7 @@ public final class StorageMenu extends AbstractContainerMenu {
         page = view.getInt("Page");
         StorageNetwork.snapshot(serverPlayer, containerId, view);
         sentRevision = storage().revision();
+        message = "";
     }
 
     @Override
@@ -114,6 +118,7 @@ public final class StorageMenu extends AbstractContainerMenu {
         if (++actionsThisTick > 10) return;
         boolean navigation = request.action() == StorageNetwork.Action.OPEN || request.action() == StorageNetwork.Action.PAGE
                 || request.action() == StorageNetwork.Action.RESIZE;
+        if (!navigation && storage().isLocked()) { message = "storage_locked"; sync(); return; }
         if (!navigation && request.revision() != storage().revision()) { message = "stale"; sync(); return; }
         if (!storage().hasFolder(currentFolder)) currentFolder = 0;
         int amount = Math.max(0, Math.min(StorageInventory.CAPACITY, request.amount()));
@@ -157,5 +162,11 @@ public final class StorageMenu extends AbstractContainerMenu {
     private void requireVisibleEntry(int id) {
         StorageInventory.Entry entry = storage().entry(id);
         if (entry == null || entry.folder() != currentFolder) throw new IllegalArgumentException("missing_item");
+    }
+
+    @Override
+    public void removed(Player player) {
+        closed = true;
+        super.removed(player);
     }
 }

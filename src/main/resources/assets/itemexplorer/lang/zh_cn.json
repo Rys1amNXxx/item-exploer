@@ -1,6 +1,8 @@
 {
   "block.itemexplorer.storage_terminal": "物品存储终端",
   "gui.itemexplorer.title": "物品资源管理器",
+  "gui.itemexplorer.locked": "数据保护中",
+  "message.itemexplorer.storage_locked": "存储数据无法安全读取，已暂停存取并保留原始数据。请联系服主检查日志和恢复备份。",
   "gui.itemexplorer.root": "主存储盘",
   "gui.itemexplorer.new": "新建目录",
   "gui.itemexplorer.rename": "改名",

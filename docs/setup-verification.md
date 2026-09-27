@@ -20,7 +20,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\dev.ps1 build --console=pl
 powershell -NoProfile -ExecutionPolicy Bypass -File .\dev.ps1 runGameTestServer --console=plain
 ```
 
-构建通过。GameTestServer 在独立服务端环境加载模组，10 项必需测试全部通过：
+0.1.2-dev 构建通过。GameTestServer 在独立服务端环境加载模组，26 项必需测试全部通过。
+原有 10 项回归测试继续通过：
 
 1. 方块实体经过二进制 NBT 存档往返后，嵌套目录、改名和拆分后的数量仍然一致。
 2. 满背包不能消耗库存，包括创造模式；只有部分空间时只转移实际可容纳的数量。
@@ -36,7 +37,33 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\dev.ps1 runGameTestServer 
 第 8 项使用 Forge `FakePlayer`；它验证菜单校验逻辑，并不代表已经完成真实多人网络测试。
 普通 Gradle `test` 没有 JUnit 源码；验证游戏逻辑必须显式运行 `runGameTestServer`。
 
-构建产物：`build/libs/itemexplorer-1.20.1-0.1.1-dev.jar`。
+新增 16 项：
+
+11. 未知 / 缺失存档版本和错误标签类型进入保护状态，原始数据不变。
+12. 循环 / 孤立目录、重复 ID、非法名称与条目目录引用被拒绝。
+13. 非法数量、缺失物品、异常样本和无法无损解码的数据被保护。
+14. 存档中的目录数、深度与条目数上限在发布库存前验证。
+15. 乱序父子目录安全读取，过小的正 ID 计数器修复后不会覆盖旧数据。
+16. 原始方块数据往返不变，独立恢复归档在方块拆除后仍然存在。
+17. 归档重复写入幂等，写入失败不清空库存，已有损坏归档不能被误认为成功。
+18. 两个 FakePlayer 菜单交错取物，延迟 10 tick 的旧请求及重复请求不重复消耗库存。
+19. 另一菜单删除当前目录后，观看者刷新回根目录。
+20. 关闭菜单归还鼠标物品一次；旧菜单后到请求与 Shift 操作不能继续转移。
+21. 满背包关闭与模拟断线分别掉落鼠标物品一次，不丢失或重复。
+22. 每 tick 第 11 个自定义请求被拒绝，下个 tick 恢复请求预算。
+23. 错误菜单 ID、旁观者、非活动菜单和已拆除设备不能取物。
+24. 保护中的终端拒绝鼠标 / Shift 存入和目录修改，玩家物品保留。
+25. 所有请求类型及分页快照经过网络编解码后内容保持一致。
+26. 远处测试区块实际触发 Forge 卸载事件后，从磁盘重新加载得到新的方块实体，目录与库存一致。
+
+测试 18、20 的延迟是服务端调度，21 的断线状态由 FakePlayer 模拟；均不代表真实网络链路验证。
+测试中出现 `unsupported_version` 保护日志是故意构造的异常存档，不是测试失败。
+
+构建产物：`build/libs/itemexplorer-1.20.1-0.1.2-dev.jar`。
+
+`.github/workflows/verify.yml` 已通过 actionlint 1.7.12 检查。工作流会运行构建和 GameTest，
+但本次只做本地验证，尚未推送或触发 GitHub Actions 远程运行。
+恢复流程及真实多人验收步骤见 [P0 稳定性说明](p0-reliability.md)。
 
 ## 客户端检查
 
@@ -54,8 +81,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\dev.ps1 runGameTestServer 
 
 这些是实际客户端操作检查，与服务端 GameTest 分开记录。
 
-尚未完成：两个真实客户端的并发操作、模拟高延迟、所有 GUI 缩放组合、
-第三方模组特殊物品、区块卸载再加载和长时间运行验证。
+0.1.2 新增的保护状态界面尚未进行客户端目视检查。
+尚未完成：两个真实客户端的并发操作、真实链路高延迟、所有 GUI 缩放组合、
+第三方模组特殊物品和长时间运行验证。区块卸载再加载已由上述第 26 项验证。
 
 ## 初始化记录
 

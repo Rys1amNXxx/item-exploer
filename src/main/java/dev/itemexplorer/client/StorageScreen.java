@@ -35,7 +35,7 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
     private record Crumb(int id, String name, String display, int x, int width) {}
     private StorageLayout layout;
     private EditBox quantity, folderName;
-    private Button rename, delete, up, previous, next, withdraw, move, all, deposit, modalOk, modalCancel;
+    private Button create, rename, delete, up, previous, next, withdraw, move, all, deposit, modalOk, modalCancel;
     private int selected = -1, folderScroll, lastFolder = -1, dragCandidate = -1;
     private double pressX, pressY;
     private boolean dragging, choosingTarget, modal, renaming;
@@ -71,7 +71,7 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
         clearDraggingState();
         dragging = false; dragCandidate = -1; choosingTarget = false;
         menu.arrangeClientSlots(layout.inventoryX(), layout.inventoryY());
-        button(8, 23, 48, "new", b -> openModal(false));
+        create = button(8, 23, 48, "new", b -> openModal(false));
         rename = button(60, 23, 42, "rename", b -> openModal(true));
         delete = button(106, 23, 42, "delete", b -> send(Action.DELETE, 0, 0, 0, ""));
         up = button(152, 23, 42, "up", b -> {
@@ -297,12 +297,15 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
             send(Action.RESIZE, 0, 0, layout.pageSize(), "");
         }
         if (selectedEntry() == null) { selected = -1; choosingTarget = false; }
-        rename.active = delete.active = up.active = current() != 0 && !modal;
+        boolean writable = !menu.view().getBoolean("Locked");
+        create.active = writable && !modal;
+        rename.active = delete.active = writable && current() != 0 && !modal;
+        up.active = current() != 0 && !modal;
         previous.active = menu.view().getInt("Page") > 0 && !modal;
         next.active = menu.view().getInt("Page") + 1 < menu.view().getInt("Pages") && !modal;
-        withdraw.active = move.active = selected >= 0 && amount() > 0 && !modal;
-        all.active = selected >= 0 && !modal;
-        deposit.active = !menu.getCarried().isEmpty() && !modal;
+        withdraw.active = move.active = writable && selected >= 0 && amount() > 0 && !modal;
+        all.active = writable && selected >= 0 && !modal;
+        deposit.active = writable && !menu.getCarried().isEmpty() && !modal;
         move.setMessage(label(choosingTarget ? "cancel_move" : "move"));
         if (moveTooltipTarget != choosingTarget) {
             moveTooltipTarget = choosingTarget;
@@ -378,7 +381,8 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
         panel(g, 0, 0, imageWidth, imageHeight);
         g.renderItem(ModContent.STORAGE_ITEM.get().getDefaultInstance(), leftPos + 8, topPos + 5);
         text(g, label("title"), 28, 9, imageWidth - 140, TEXT);
-        String capacity = menu.view().getInt("Total") + " / " + StorageInventory.CAPACITY;
+        String capacity = menu.view().getBoolean("Locked") ? label("locked").getString()
+                : menu.view().getInt("Total") + " / " + StorageInventory.CAPACITY;
         text(g, Component.literal(capacity), imageWidth - 10 - font.width(capacity), 9, 110, MUTED);
         String page = (menu.view().getInt("Page") + 1) + "/" + Math.max(1, menu.view().getInt("Pages"));
         text(g, Component.literal(page), imageWidth - 44 - font.width(page) / 2, 28, 40, TEXT);
@@ -435,8 +439,9 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
     }
 
     private void renderError(GuiGraphics g) {
-        if (Util.getMillis() >= errorUntil) return;
-        var lines = font.split(Component.translatable("message.itemexplorer." + error), imageWidth - 40);
+        boolean locked = menu.view().getBoolean("Locked");
+        if (!locked && Util.getMillis() >= errorUntil) return;
+        var lines = font.split(Component.translatable("message.itemexplorer." + (locked ? "storage_locked" : error)), imageWidth - 40);
         int h = lines.size() * font.lineHeight + 12;
         int x = 12, y = layout.controlsY() - h - 3;
         g.pose().pushPose(); g.pose().translate(0, 0, 250);

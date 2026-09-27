@@ -1,6 +1,8 @@
 {
   "block.itemexplorer.storage_terminal": "Item Storage Terminal",
   "gui.itemexplorer.title": "Item Explorer",
+  "gui.itemexplorer.locked": "Protected",
+  "message.itemexplorer.storage_locked": "Storage data could not be loaded safely. Transfers are disabled; original data is preserved. Ask the server owner to check the log and recovery backup.",
   "gui.itemexplorer.root": "Main drive",
   "gui.itemexplorer.new": "New dir",
   "gui.itemexplorer.rename": "Rename",

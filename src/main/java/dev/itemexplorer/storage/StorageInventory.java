@@ -17,6 +17,7 @@ import java.util.Map;
 
 /** Server-owned inventory. Counts are independent of vanilla stack limits. */
 public final class StorageInventory {
+    public static final int DATA_VERSION = 1;
     public static final int CAPACITY = 4096;
     public static final int MAX_ENTRIES = 128;
     public static final int MAX_FOLDERS = 64;
@@ -35,6 +36,8 @@ public final class StorageInventory {
     private int nextFolder = 1;
     private int nextEntry = 1;
     private long revision;
+    private Tag protectedData;
+    private String loadProblem = "";
 
     public StorageInventory(Runnable changed) {
         this.changed = changed;
@@ -42,6 +45,8 @@ public final class StorageInventory {
     }
 
     public long revision() { return revision; }
+    public boolean isLocked() { return protectedData != null; }
+    public String loadProblem() { return loadProblem; }
     public int total() { return entries.values().stream().mapToInt(Entry::count).sum(); }
     public boolean hasFolder(int id) { return folders.containsKey(id); }
     public Folder folder(int id) { return folders.get(id); }
@@ -62,10 +67,15 @@ public final class StorageInventory {
         if (!hasFolder(id)) throw new IllegalArgumentException("invalid_folder");
     }
 
+    private void requireWritable() {
+        if (isLocked()) throw new IllegalArgumentException("storage_locked");
+    }
+
     private String checkedName(int parent, int except, String input) {
         String name = input.strip();
         if (name.isEmpty() || name.length() > MAX_NAME || name.equals(".") || name.equals("..")
-                || name.chars().anyMatch(c -> Character.isISOControl(c) || c == '/' || c == '\\' || c == '\u00a7')) {
+                || name.codePoints().anyMatch(c -> Character.isISOControl(c) || Character.getType(c) == Character.FORMAT
+                || c == '/' || c == '\\' || c == '\u00a7')) {
             throw new IllegalArgumentException("invalid_name");
         }
         if (folders.values().stream().anyMatch(f -> f.id != except && f.parent == parent && f.name.equalsIgnoreCase(name))) {
@@ -75,6 +85,7 @@ public final class StorageInventory {
     }
 
     public int createFolder(int parent, String name) {
+        requireWritable();
         requireFolder(parent);
         if (folders.size() >= MAX_FOLDERS || nextFolder == Integer.MAX_VALUE) throw new IllegalArgumentException("folder_limit");
         int depth = 0;
@@ -88,6 +99,7 @@ public final class StorageInventory {
     }
 
     public void renameFolder(int id, String name) {
+        requireWritable();
         requireFolder(id);
         if (id == 0) throw new IllegalArgumentException("root_folder");
         Folder folder = folders.get(id);
@@ -96,6 +108,7 @@ public final class StorageInventory {
     }
 
     public int deleteFolder(int id) {
+        requireWritable();
         requireFolder(id);
         if (id == 0) throw new IllegalArgumentException("root_folder");
         if (folders.values().stream().anyMatch(f -> f.parent == id)
@@ -111,6 +124,7 @@ public final class StorageInventory {
     }
 
     public int insert(ItemStack stack, int requested, int folder) {
+        requireWritable();
         requireFolder(folder);
         if (stack.isEmpty() || requested <= 0) return 0;
         if (stack.getItem() instanceof BlockItem item && item.getBlock() instanceof StorageBlock) {
@@ -122,13 +136,7 @@ public final class StorageInventory {
         if (match == null) {
             if (entries.size() >= MAX_ENTRIES || nextEntry == Integer.MAX_VALUE) throw new IllegalArgumentException("entry_limit");
             ItemStack sample = stack.copyWithCount(1);
-            try {
-                ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-                NbtIo.write(sample.save(new CompoundTag()), new DataOutputStream(bytes));
-                if (bytes.size() > MAX_ITEM_BYTES) throw new IllegalArgumentException("item_too_large");
-            } catch (IOException e) {
-                throw new IllegalArgumentException("item_too_large", e);
-            }
+            checkItemSize(sample.save(new CompoundTag()));
             int id = nextEntry++;
             entries.put(id, new Entry(id, folder, sample, amount));
         } else {
@@ -140,6 +148,7 @@ public final class StorageInventory {
 
     /** Returns a normal, legal-sized stack; the caller must handle its destination. */
     public ItemStack take(int id, int requested) {
+        requireWritable();
         Entry entry = entries.get(id);
         if (entry == null || requested <= 0) return ItemStack.EMPTY;
         int amount = Math.min(Math.min(entry.count, requested), entry.stack.getMaxStackSize());
@@ -150,6 +159,7 @@ public final class StorageInventory {
     }
 
     public int move(int id, int target, int requested) {
+        requireWritable();
         requireFolder(target);
         Entry source = entries.get(id);
         if (source == null) throw new IllegalArgumentException("missing_item");
@@ -175,9 +185,11 @@ public final class StorageInventory {
         return amount;
     }
 
-    public CompoundTag save() {
+    /** Protected data is written back verbatim, including an invalid Storage tag type. */
+    public Tag save() {
+        if (isLocked()) return protectedData.copy();
         CompoundTag tag = new CompoundTag();
-        tag.putInt("Version", 1);
+        tag.putInt("Version", DATA_VERSION);
         tag.putInt("NextFolder", nextFolder);
         tag.putInt("NextEntry", nextEntry);
         ListTag folderTags = new ListTag();
@@ -203,33 +215,124 @@ public final class StorageInventory {
         return tag;
     }
 
-    public void load(CompoundTag tag) {
+    /** Validate a temporary inventory before publishing any of its contents. */
+    public void load(Tag data) {
         folders.clear();
         entries.clear();
         folders.put(0, new Folder(0, -1, ""));
-        nextFolder = Math.max(1, tag.getInt("NextFolder"));
-        nextEntry = Math.max(1, tag.getInt("NextEntry"));
-        for (Tag value : tag.getList("Folders", Tag.TAG_COMPOUND)) {
-            CompoundTag f = (CompoundTag) value;
-            int id = f.getInt("Id");
-            // Insertion order is parent-before-child, since folders are never reparented.
-            if (id > 0 && id < Integer.MAX_VALUE && hasFolder(f.getInt("Parent"))) {
-                folders.put(id, new Folder(id, f.getInt("Parent"), f.getString("Name")));
-                nextFolder = Math.max(nextFolder, id + 1);
+        nextFolder = nextEntry = 1;
+        protectedData = null;
+        loadProblem = "";
+        try {
+            // A newly placed block may have no Storage tag; an unversioned existing tag is not a new block.
+            if (data != null) {
+                if (!(data instanceof CompoundTag tag)) throw new IllegalArgumentException("invalid_storage_type");
+                StorageInventory parsed = new StorageInventory(() -> {});
+                parsed.readVersionOne(tag);
+                folders.putAll(parsed.folders);
+                entries.putAll(parsed.entries);
+                nextFolder = parsed.nextFolder;
+                nextEntry = parsed.nextEntry;
             }
-        }
-        for (Tag value : tag.getList("Entries", Tag.TAG_COMPOUND)) {
-            CompoundTag e = (CompoundTag) value;
-            ItemStack stack = ItemStack.of(e.getCompound("Stack"));
-            int id = e.getInt("Id");
-            int folder = hasFolder(e.getInt("Folder")) ? e.getInt("Folder") : 0;
-            int count = e.getInt("Count");
-            if (!stack.isEmpty() && id > 0 && id < Integer.MAX_VALUE && count > 0) {
-                entries.put(id, new Entry(id, folder, stack.copyWithCount(1), count));
-                nextEntry = Math.max(nextEntry, id + 1);
-            }
+        } catch (RuntimeException failure) {
+            protectedData = data.copy();
+            loadProblem = failure instanceof IllegalArgumentException && failure.getMessage() != null
+                    ? failure.getMessage() : "item_decode_failed";
         }
         revision++;
+    }
+
+    private void readVersionOne(CompoundTag tag) {
+        requireType(tag, "Version", Tag.TAG_INT);
+        if (tag.getInt("Version") != DATA_VERSION) throw new IllegalArgumentException("unsupported_version");
+        requireType(tag, "NextFolder", Tag.TAG_INT);
+        requireType(tag, "NextEntry", Tag.TAG_INT);
+        if (tag.getInt("NextFolder") < 1 || tag.getInt("NextEntry") < 1) throw new IllegalArgumentException("invalid_next_id");
+        nextFolder = tag.getInt("NextFolder");
+        nextEntry = tag.getInt("NextEntry");
+        ListTag folderTags = checkedList(tag, "Folders", MAX_FOLDERS - 1);
+        Map<Integer, Folder> pending = new LinkedHashMap<>();
+        for (Tag value : folderTags) {
+            CompoundTag f = (CompoundTag) value;
+            requireType(f, "Id", Tag.TAG_INT);
+            requireType(f, "Parent", Tag.TAG_INT);
+            requireType(f, "Name", Tag.TAG_STRING);
+            int id = f.getInt("Id");
+            if (id <= 0 || id == Integer.MAX_VALUE || pending.containsKey(id)) throw new IllegalArgumentException("invalid_folder_id");
+            pending.put(id, new Folder(id, f.getInt("Parent"), f.getString("Name")));
+            nextFolder = Math.max(nextFolder, id + 1);
+        }
+        // Resolve parents independently of list order; no progress means an orphan or a cycle.
+        while (!pending.isEmpty()) {
+            int before = pending.size();
+            var iterator = pending.values().iterator();
+            while (iterator.hasNext()) {
+                Folder f = iterator.next();
+                if (!hasFolder(f.parent)) continue;
+                int depth = 1;
+                for (Folder parent = folders.get(f.parent); parent.parent != -1; parent = folders.get(parent.parent)) depth++;
+                if (depth > MAX_DEPTH) throw new IllegalArgumentException("folder_limit");
+                String name = checkedName(f.parent, -1, f.name);
+                if (!name.equals(f.name)) throw new IllegalArgumentException("invalid_name");
+                folders.put(f.id, f);
+                iterator.remove();
+            }
+            if (pending.size() == before) throw new IllegalArgumentException("invalid_folder_tree");
+        }
+        int total = 0;
+        for (Tag value : checkedList(tag, "Entries", MAX_ENTRIES)) {
+            CompoundTag e = (CompoundTag) value;
+            requireType(e, "Id", Tag.TAG_INT);
+            requireType(e, "Folder", Tag.TAG_INT);
+            requireType(e, "Count", Tag.TAG_INT);
+            requireType(e, "Stack", Tag.TAG_COMPOUND);
+            int id = e.getInt("Id");
+            int folder = e.getInt("Folder");
+            int count = e.getInt("Count");
+            if (id <= 0 || id == Integer.MAX_VALUE || entries.containsKey(id)) throw new IllegalArgumentException("invalid_entry_id");
+            requireFolder(folder);
+            if (count <= 0 || count > CAPACITY - total) throw new IllegalArgumentException("invalid_count");
+            CompoundTag sample = e.getCompound("Stack");
+            checkItemSize(sample);
+            requireType(sample, "id", Tag.TAG_STRING);
+            requireType(sample, "Count", Tag.TAG_BYTE);
+            if (sample.contains("tag")) requireType(sample, "tag", Tag.TAG_COMPOUND);
+            if (sample.contains("ForgeCaps")) requireType(sample, "ForgeCaps", Tag.TAG_COMPOUND);
+            if (sample.getByte("Count") != 1) throw new IllegalArgumentException("invalid_sample_count");
+            ItemStack stack = ItemStack.of(sample);
+            if (stack.isEmpty()) throw new IllegalArgumentException("unknown_item");
+            if (!sample.equals(stack.save(new CompoundTag()))) throw new IllegalArgumentException("item_data_changed");
+            if (stack.getItem() instanceof BlockItem item && item.getBlock() instanceof StorageBlock) {
+                throw new IllegalArgumentException("nested_device");
+            }
+            if (matching(folder, stack) != null) throw new IllegalArgumentException("duplicate_entry");
+            entries.put(id, new Entry(id, folder, stack, count));
+            nextEntry = Math.max(nextEntry, id + 1);
+            total += count;
+        }
+    }
+
+    private static void requireType(CompoundTag tag, String key, int type) {
+        if (!tag.contains(key, type)) throw new IllegalArgumentException("invalid_field_" + key);
+    }
+
+    private static ListTag checkedList(CompoundTag tag, String key, int limit) {
+        requireType(tag, key, Tag.TAG_LIST);
+        ListTag list = (ListTag) tag.get(key);
+        if (list.size() > limit || (!list.isEmpty() && list.getElementType() != Tag.TAG_COMPOUND)) {
+            throw new IllegalArgumentException("invalid_list_" + key);
+        }
+        return list;
+    }
+
+    private static void checkItemSize(CompoundTag sample) {
+        try {
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+            NbtIo.write(sample, new DataOutputStream(bytes));
+            if (bytes.size() > MAX_ITEM_BYTES) throw new IllegalArgumentException("item_too_large");
+        } catch (IOException e) {
+            throw new IllegalArgumentException("item_too_large", e);
+        }
     }
 
     /** Bounded view: the directory tree plus one page, never the entire inventory. */
@@ -254,7 +357,8 @@ public final class StorageInventory {
         tag.putInt("Pages", pages);
         tag.putInt("PageSize", pageSize);
         tag.putInt("Total", total());
-        tag.putString("Message", message);
+        tag.putBoolean("Locked", isLocked());
+        tag.putString("Message", isLocked() ? "storage_locked" : message);
         ListTag fs = new ListTag();
         for (Folder f : folders.values()) {
             CompoundTag t = new CompoundTag();

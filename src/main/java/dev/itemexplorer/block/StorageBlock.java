@@ -67,6 +67,7 @@ public final class StorageBlock extends BaseEntityBlock {
     public void onRemove(BlockState oldState, Level level, BlockPos pos, BlockState newState, boolean moving) {
         if (!oldState.is(newState.getBlock())) {
             if (!level.isClientSide && level.getBlockEntity(pos) instanceof StorageBlockEntity blockEntity) {
+                blockEntity.archiveProtectedData();
                 StorageInventory inventory = blockEntity.inventory();
                 for (StorageInventory.Entry entry : inventory.entries()) {
                     ItemStack stack;

@@ -48,6 +48,11 @@
 目前未接入漏斗 / 管道、远程存储、搜索、排序、目录重排或权限系统。
 可以接近设备的玩家都能使用它。
 
+0.1.2 增加存档保护：未知版本、损坏目录或异常物品数据会使终端进入“数据保护中”，
+暂停存取并原样保存整份数据；服务端会尝试在世界目录的 `itemexplorer-recovery/`
+生成独立的压缩 NBT 恢复文件，日志记录原因、方块位置和文件路径。
+恢复文件不会自动导入库存。恢复步骤与多人验收清单见 [P0 稳定性说明](docs/p0-reliability.md)。
+
 ## 开发版本
 
 | 组件 | 固定版本 |
@@ -72,10 +77,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\dev.ps1 build
 powershell -NoProfile -ExecutionPolicy Bypass -File .\dev.ps1 runClient
 ```
 
-打包输出：`build/libs/itemexplorer-1.20.1-0.1.1-dev.jar`。
+打包输出：`build/libs/itemexplorer-1.20.1-0.1.2-dev.jar`。
 将此 JAR 放入安装了对应 Forge 的 Minecraft 1.20.1 实例的 `mods/` 目录。
-多人游戏的客户端与服务端都需要安装相同版本。0.1.1 的存档格式保持不变，
-但浏览分页协议已更新，不能与 0.1.0 混用客户端和服务端。
+多人游戏的客户端与服务端都需要安装相同版本。0.1.2 继续读取 0.1.0 / 0.1.1
+使用的版本 1 存档，网络协议更新为 3，不能与旧版混用客户端和服务端。
 `-ExecutionPolicy Bypass` 仅适用于当前 PowerShell 子进程，不修改系统策略。
 
 如果 JDK 17 位于非标准目录，可在当前终端指定：
@@ -108,6 +113,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\dev.ps1 runGameTestServer
 
 GameTest 使用独立的 `run-gametest/` 世界，测试代码和测试结构不打进发布 JAR。
 `build` 只进行构建，不代替 `runGameTestServer`；当前没有普通 JUnit 测试。
+GitHub Actions 会在 push / pull request 时执行 `build runGameTestServer`，
+保存验证日志，并在全部通过后保存 JAR；也可以手动触发。
 
 其他任务：`runServer` 启动独立开发服务器，`runData` 运行资源生成。
 客户端使用 `run/`，服务端使用 `run-server/`，数据生成使用 `run-data/`。
