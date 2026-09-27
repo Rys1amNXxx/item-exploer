@@ -20,11 +20,11 @@ import java.util.Optional;
 import java.util.function.Supplier;
 
 public final class StorageNetwork {
-    private static final String VERSION = "1";
+    private static final String VERSION = "2";
     private static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
             ResourceLocation.fromNamespaceAndPath(ItemExplorer.MOD_ID, "storage"), () -> VERSION, VERSION::equals, VERSION::equals);
 
-    public enum Action { OPEN, PAGE, CREATE, RENAME, DELETE, MOVE, WITHDRAW, DEPOSIT_CURSOR }
+    public enum Action { OPEN, PAGE, CREATE, RENAME, DELETE, MOVE, WITHDRAW, DEPOSIT_CURSOR, RESIZE }
     public record Request(int menuId, long revision, Action action, int id, int target, int amount, String name) {
         public static Request decode(FriendlyByteBuf buf) {
             return new Request(buf.readVarInt(), buf.readLong(), buf.readEnum(Action.class),

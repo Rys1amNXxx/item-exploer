@@ -5,6 +5,7 @@ import dev.itemexplorer.ItemExplorer;
 import dev.itemexplorer.ModContent;
 import dev.itemexplorer.block.StorageBlockEntity;
 import dev.itemexplorer.menu.StorageMenu;
+import dev.itemexplorer.menu.StorageLayout;
 import dev.itemexplorer.network.StorageNetwork;
 import dev.itemexplorer.storage.StorageInventory;
 import dev.itemexplorer.storage.StorageTransfers;
@@ -30,6 +31,8 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.util.UUID;
+import java.util.HashSet;
+import java.util.Set;
 
 @GameTestHolder(ItemExplorer.MOD_ID)
 @PrefixGameTestTemplate(false)
@@ -172,6 +175,73 @@ public final class StorageGameTests {
         helper.assertTrue(last.getInt("Page") == 2 && last.getList("Entries", 10).size() == 1, "Invalid page was not clamped");
         storage.entries().get(0).stack().setHoverName(Component.literal("Mutated outside"));
         helper.assertTrue(storage.entries().get(0).stack().getHoverName().getString().equals("Variant 0"), "External stack reference mutated storage");
+        helper.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void childFoldersAndItemsSharePagesWithoutOmissions(GameTestHelper helper) {
+        StorageInventory storage = storage();
+        Set<Integer> expectedFolders = new HashSet<>();
+        for (int i = 0; i < 7; i++) expectedFolders.add(storage.createFolder(0, "Folder " + i));
+        int parent = expectedFolders.iterator().next();
+        int nested = storage.createFolder(parent, "Nested");
+        storage.insert(new ItemStack(Items.DIAMOND), 1, nested);
+        Set<Integer> expectedItems = new HashSet<>();
+        for (int i = 0; i < 13; i++) {
+            ItemStack item = new ItemStack(Items.STONE);
+            item.setHoverName(Component.literal("Root item " + i));
+            storage.insert(item, 1, 0);
+        }
+        storage.entries().stream().filter(e -> e.folder() == 0).forEach(e -> expectedItems.add(e.id()));
+        Set<Integer> seenFolders = new HashSet<>(), seenItems = new HashSet<>();
+        CompoundTag first = storage.view(0, 0, 6, "");
+        helper.assertTrue(first.getInt("Pages") == 4 && first.getIntArray("PageFolders").length == 6
+                && first.getList("Entries", 10).isEmpty(), "Folders must occupy the first page before items");
+        for (int page = 0; page < first.getInt("Pages"); page++) {
+            CompoundTag view = storage.view(0, page, 6, "");
+            int[] childIds = view.getIntArray("PageFolders");
+            var itemTags = view.getList("Entries", 10);
+            helper.assertTrue(childIds.length + itemTags.size() <= 6, "Combined page exceeded its budget");
+            for (int id : childIds) helper.assertTrue(seenFolders.add(id), "Folder repeated across pages");
+            for (int i = 0; i < itemTags.size(); i++) helper.assertTrue(seenItems.add(itemTags.getCompound(i).getInt("Id")), "Item repeated across pages");
+        }
+        helper.assertTrue(seenFolders.equals(expectedFolders) && seenItems.equals(expectedItems), "Mixed pagination omitted entries or included descendants");
+        CompoundTag nestedView = storage.view(parent, 0, 25, "");
+        helper.assertTrue(nestedView.getIntArray("PageFolders").length == 1
+                && nestedView.getIntArray("PageFolders")[0] == nested, "Opening a folder did not expose its direct child");
+        CompoundTag large = storage.view(0, 999, Integer.MAX_VALUE, "");
+        helper.assertTrue(large.getInt("PageSize") == StorageInventory.MAX_PAGE_SIZE && large.getInt("Page") == 0
+                && large.getIntArray("PageFolders").length + large.getList("Entries", 10).size() == 20, "Resize did not clamp and repaginate");
+        helper.assertTrue(storage.view(0, 0, -1, "").getInt("PageSize") == 6 && storage.total() == 14, "Invalid size or browsing changed inventory");
+        helper.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void responsiveLayoutPreservesInventorySlotIdentity(GameTestHelper helper) {
+        var player = helper.makeMockPlayer();
+        Inventory inventory = player.getInventory();
+        for (int i = 0; i < 36; i++) inventory.setItem(i, new ItemStack(Items.STONE, i + 1));
+        StorageMenu clientMenu = new StorageMenu(1, inventory, BlockPos.ZERO, null);
+        int[][] viewports = {{320, 240}, {360, 240}, {480, 270}, {720, 415}, {1920, 1080}};
+        for (int[] viewport : viewports) {
+            StorageLayout layout = StorageLayout.fit(viewport[0], viewport[1]);
+            helper.assertTrue(layout.width() <= viewport[0] && layout.height() <= viewport[1], "Window extends outside viewport");
+            helper.assertTrue(layout.pageSize() >= 6 && layout.pageSize() <= StorageInventory.MAX_PAGE_SIZE, "Unsupported page size");
+            helper.assertTrue(layout.browserY() + layout.rows() * 30 < layout.controlsY()
+                    && layout.inventoryY() + 58 + 16 < layout.height(), "Browser or inventory overlaps another region");
+            clientMenu.arrangeClientSlots(layout.inventoryX(), layout.inventoryY());
+            for (int i = 0; i < 36; i++) {
+                var slot = clientMenu.slots.get(i);
+                int inventoryIndex = i < 27 ? i + 9 : i - 27;
+                helper.assertTrue(slot.index == i && slot.getContainerSlot() == inventoryIndex
+                        && slot.getItem() == inventory.getItem(inventoryIndex), "Resize changed the slot's identity or backing item");
+                helper.assertTrue(slot.x >= 0 && slot.x + 16 < layout.width() && slot.y + 16 < layout.height(), "Slot left the window");
+            }
+        }
+        clientMenu.slots.get(0).remove(1);
+        clientMenu.slots.get(27).remove(1);
+        helper.assertTrue(inventory.getItem(9).getCount() == 9 && inventory.getItem(0).isEmpty(), "Reflowed slots modify the wrong inventory positions");
+        helper.assertTrue(StorageLayout.fit(720, 415).pageSize() == 25, "Large viewport should expose 25 tiles");
         helper.succeed();
     }
 

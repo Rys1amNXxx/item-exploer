@@ -23,6 +23,7 @@ public final class StorageMenu extends AbstractContainerMenu {
     private final Player player;
     private int currentFolder;
     private int page;
+    private int pageSize = StorageInventory.PAGE_SIZE;
     private long sentRevision = -1;
     private String message = "";
     private long actionTick = -1;
@@ -48,6 +49,19 @@ public final class StorageMenu extends AbstractContainerMenu {
     public void acceptView(CompoundTag view) { clientView = view.copy(); }
     public int currentFolder() { return currentFolder; }
 
+    /** Only client-side positions change; slot IDs and inventory bindings stay stable. */
+    public void arrangeClientSlots(int x, int y) {
+        if (blockEntity != null) return;
+        for (int i = 0; i < slots.size(); i++) {
+            Slot previous = slots.get(i);
+            int row = i < 27 ? i / 9 : 0;
+            Slot replacement = new Slot(previous.container, previous.getContainerSlot(),
+                    x + (i % 9) * 18, y + (i < 27 ? row * 18 : 58));
+            replacement.index = previous.index;
+            slots.set(i, replacement);
+        }
+    }
+
     @Override
     public boolean stillValid(Player player) {
         if (blockEntity == null) return player.level().isClientSide;
@@ -61,7 +75,7 @@ public final class StorageMenu extends AbstractContainerMenu {
     private void sync() {
         if (!(player instanceof ServerPlayer serverPlayer) || blockEntity == null) return;
         if (!storage().hasFolder(currentFolder)) { currentFolder = 0; page = 0; }
-        CompoundTag view = storage().view(currentFolder, page, message);
+        CompoundTag view = storage().view(currentFolder, page, pageSize, message);
         page = view.getInt("Page");
         StorageNetwork.snapshot(serverPlayer, containerId, view);
         sentRevision = storage().revision();
@@ -98,7 +112,8 @@ public final class StorageMenu extends AbstractContainerMenu {
         long tick = player.level().getGameTime();
         if (tick != actionTick) { actionTick = tick; actionsThisTick = 0; }
         if (++actionsThisTick > 10) return;
-        boolean navigation = request.action() == StorageNetwork.Action.OPEN || request.action() == StorageNetwork.Action.PAGE;
+        boolean navigation = request.action() == StorageNetwork.Action.OPEN || request.action() == StorageNetwork.Action.PAGE
+                || request.action() == StorageNetwork.Action.RESIZE;
         if (!navigation && request.revision() != storage().revision()) { message = "stale"; sync(); return; }
         if (!storage().hasFolder(currentFolder)) currentFolder = 0;
         int amount = Math.max(0, Math.min(StorageInventory.CAPACITY, request.amount()));
@@ -110,6 +125,10 @@ public final class StorageMenu extends AbstractContainerMenu {
                     currentFolder = request.id(); page = 0;
                 }
                 case PAGE -> page = Math.max(0, Math.min(1000, request.amount()));
+                case RESIZE -> {
+                    pageSize = Math.max(StorageInventory.PAGE_SIZE, Math.min(StorageInventory.MAX_PAGE_SIZE, request.amount()));
+                    page = 0;
+                }
                 case CREATE -> { currentFolder = storage().createFolder(currentFolder, request.name()); page = 0; message = "created"; }
                 case RENAME -> { storage().renameFolder(currentFolder, request.name()); message = "renamed"; }
                 case DELETE -> { currentFolder = storage().deleteFolder(currentFolder); page = 0; message = "deleted"; }

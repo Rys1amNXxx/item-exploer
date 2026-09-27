@@ -24,6 +24,7 @@ public final class StorageInventory {
     public static final int MAX_DEPTH = 8;
     public static final int MAX_ITEM_BYTES = 8192;
     public static final int PAGE_SIZE = 6;
+    public static final int MAX_PAGE_SIZE = 30;
 
     public record Folder(int id, int parent, String name) {}
     public record Entry(int id, int folder, ItemStack stack, int count) {}
@@ -233,14 +234,25 @@ public final class StorageInventory {
 
     /** Bounded view: the directory tree plus one page, never the entire inventory. */
     public CompoundTag view(int current, int requestedPage, String message) {
+        return view(current, requestedPage, PAGE_SIZE, message);
+    }
+
+    /** Folders come first; folders and items share the same page budget. */
+    public CompoundTag view(int current, int requestedPage, int requestedSize, String message) {
+        int pageSize = Math.max(PAGE_SIZE, Math.min(MAX_PAGE_SIZE, requestedSize));
+        List<Folder> children = folders.values().stream().filter(f -> f.parent == current).toList();
         List<Entry> visible = entries.values().stream().filter(e -> e.folder == current).toList();
-        int pages = Math.max(1, (visible.size() + PAGE_SIZE - 1) / PAGE_SIZE);
+        int totalVisible = children.size() + visible.size();
+        int pages = Math.max(1, (totalVisible + pageSize - 1) / pageSize);
         int page = Math.max(0, Math.min(requestedPage, pages - 1));
+        int start = page * pageSize;
+        int end = Math.min(totalVisible, start + pageSize);
         CompoundTag tag = new CompoundTag();
         tag.putLong("Revision", revision);
         tag.putInt("Current", current);
         tag.putInt("Page", page);
         tag.putInt("Pages", pages);
+        tag.putInt("PageSize", pageSize);
         tag.putInt("Total", total());
         tag.putString("Message", message);
         ListTag fs = new ListTag();
@@ -250,8 +262,10 @@ public final class StorageInventory {
             fs.add(t);
         }
         tag.put("Folders", fs);
+        tag.putIntArray("PageFolders", children.subList(Math.min(start, children.size()), Math.min(end, children.size()))
+                .stream().mapToInt(Folder::id).toArray());
         ListTag es = new ListTag();
-        for (Entry e : visible.subList(page * PAGE_SIZE, Math.min(visible.size(), (page + 1) * PAGE_SIZE))) {
+        for (Entry e : visible.subList(Math.max(0, start - children.size()), Math.max(0, end - children.size()))) {
             CompoundTag t = new CompoundTag();
             t.putInt("Id", e.id); t.putInt("Count", e.count);
             t.put("Stack", e.stack.save(new CompoundTag()));
