@@ -1,1 +1,7 @@
-{ "replace": false, "values": ["itemexplorer:storage_terminal"] }
+{
+  "replace": false,
+  "values": [
+    "itemexplorer:storage_terminal",
+    "itemexplorer:nas"
+  ]
+}

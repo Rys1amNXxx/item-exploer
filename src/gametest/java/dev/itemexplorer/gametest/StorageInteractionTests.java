@@ -70,13 +70,13 @@ public final class StorageInteractionTests {
         ServerPlayer first = player(helper, entity.getBlockPos()), second = player(helper, entity.getBlockPos());
         StorageMenu a = open(first, entity), b = open(second, entity);
         var delayed = request(entity, Action.WITHDRAW, id, 0, 48);
-        a.handle(delayed);
+        a.handle(delayed.withSession(a.session()));
         helper.assertTrue(inventory.total() == 16 && iron(first) == 48, "First withdrawal failed");
         helper.runAtTickTime(10, () -> {
-            b.handle(delayed);
-            a.handle(delayed); // Retransmitted application action must also be rejected.
+            b.handle(delayed.withSession(b.session()));
+            a.handle(delayed.withSession(a.session())); // Retransmitted application action must also be rejected.
             helper.assertTrue(inventory.total() == 16 && iron(second) == 0 && iron(first) == 48, "Delayed/repeated request consumed inventory");
-            b.handle(request(entity, Action.WITHDRAW, id, 0, 48));
+            b.handle(request(entity, Action.WITHDRAW, id, 0, 48).withSession(b.session()));
             helper.assertTrue(inventory.total() == 0 && iron(first) + iron(second) == 64, "Concurrent consumers did not conserve total quantity");
             helper.succeed();
         });
@@ -88,9 +88,9 @@ public final class StorageInteractionTests {
         int folder = entity.inventory().createFolder(0, "Shared");
         StorageMenu a = open(player(helper, entity.getBlockPos()), entity);
         StorageMenu b = open(player(helper, entity.getBlockPos()), entity);
-        a.handle(request(entity, Action.OPEN, folder, 0, 0));
-        b.handle(request(entity, Action.OPEN, folder, 0, 0));
-        a.handle(request(entity, Action.DELETE, 0, 0, 0));
+        a.handle(request(entity, Action.OPEN, folder, 0, 0).withSession(a.session()));
+        b.handle(request(entity, Action.OPEN, folder, 0, 0).withSession(b.session()));
+        a.handle(request(entity, Action.DELETE, 0, 0, 0).withSession(a.session()));
         b.broadcastChanges();
         helper.assertTrue(b.currentFolder() == 0 && !entity.inventory().hasFolder(folder), "Viewer retained a deleted folder");
         helper.succeed();
@@ -144,10 +144,10 @@ public final class StorageInteractionTests {
         int id = entity.inventory().entries().get(0).id();
         ServerPlayer player = player(helper, entity.getBlockPos());
         StorageMenu menu = open(player, entity);
-        for (int i = 0; i < 11; i++) menu.handle(request(entity, Action.WITHDRAW, id, 0, 1));
+        for (int i = 0; i < 11; i++) menu.handle(request(entity, Action.WITHDRAW, id, 0, 1).withSession(menu.session()));
         helper.assertTrue(iron(player) == 10 && entity.inventory().total() == 22, "Per-tick limit did not reject the eleventh request");
         helper.runAtTickTime(2, () -> {
-            menu.handle(request(entity, Action.WITHDRAW, id, 0, 1));
+            menu.handle(request(entity, Action.WITHDRAW, id, 0, 1).withSession(menu.session()));
             helper.assertTrue(iron(player) == 11 && entity.inventory().total() == 21, "Request budget failed to reset");
             helper.succeed();
         });
@@ -160,16 +160,16 @@ public final class StorageInteractionTests {
         ServerPlayer player = player(helper, entity.getBlockPos());
         StorageMenu menu = open(player, entity);
         int id = entity.inventory().entries().get(0).id();
-        menu.handle(new StorageNetwork.Request(2, entity.inventory().revision(), Action.WITHDRAW, id, 0, 64, ""));
+        menu.handle(new StorageNetwork.Request(2, entity.inventory().revision(), Action.WITHDRAW, id, 0, 64, "").withSession(menu.session()));
         player.setGameMode(GameType.SPECTATOR);
-        menu.handle(request(entity, Action.WITHDRAW, id, 0, 64));
+        menu.handle(request(entity, Action.WITHDRAW, id, 0, 64).withSession(menu.session()));
         player.setGameMode(GameType.SURVIVAL);
         player.containerMenu = player.inventoryMenu;
-        menu.handle(request(entity, Action.WITHDRAW, id, 0, 64));
+        menu.handle(request(entity, Action.WITHDRAW, id, 0, 64).withSession(menu.session()));
         helper.assertTrue(entity.inventory().total() == 64 && iron(player) == 0, "Invalid session extracted items");
         player.containerMenu = menu;
         helper.setBlock(new BlockPos(2, 2, 2), Blocks.AIR);
-        menu.handle(request(entity, Action.WITHDRAW, id, 0, 64));
+        menu.handle(request(entity, Action.WITHDRAW, id, 0, 64).withSession(menu.session()));
         helper.assertTrue(!menu.stillValid(player) && iron(player) == 0 && entity.inventory().total() == 0, "Removed block accepted requests");
         helper.succeed();
     }
@@ -183,9 +183,9 @@ public final class StorageInteractionTests {
         StorageMenu menu = open(player, entity);
         player.getInventory().setItem(0, new ItemStack(Items.IRON_INGOT, 64));
         menu.setCarried(new ItemStack(Items.DIAMOND, 5));
-        menu.quickMoveStack(player, 27);
-        menu.handle(request(entity, Action.DEPOSIT_CURSOR, 0, 0, 0));
-        menu.handle(new StorageNetwork.Request(1, entity.inventory().revision(), Action.CREATE, 0, 0, 0, "Blocked"));
+        menu.handle(request(entity, Action.DEPOSIT_SLOT, 27, 0, 0).withSession(menu.session()));
+        menu.handle(request(entity, Action.DEPOSIT_CURSOR, 0, 0, 0).withSession(menu.session()));
+        menu.handle(new StorageNetwork.Request(1, entity.inventory().revision(), Action.CREATE, 0, 0, 0, "Blocked").withSession(menu.session()));
         helper.assertTrue(iron(player) == 64 && menu.getCarried().getCount() == 5 && raw.equals(entity.inventory().save()), "Locked menu consumed player items or changed protected data");
         helper.succeed();
     }

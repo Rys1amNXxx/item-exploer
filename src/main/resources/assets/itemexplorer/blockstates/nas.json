@@ -1,0 +1,19 @@
+{
+  "variants": {
+    "facing=north": {
+      "model": "itemexplorer:block/nas"
+    },
+    "facing=east": {
+      "model": "itemexplorer:block/nas",
+      "y": 90
+    },
+    "facing=south": {
+      "model": "itemexplorer:block/nas",
+      "y": 180
+    },
+    "facing=west": {
+      "model": "itemexplorer:block/nas",
+      "y": 270
+    }
+  }
+}

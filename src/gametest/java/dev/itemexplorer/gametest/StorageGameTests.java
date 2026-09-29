@@ -260,12 +260,12 @@ public final class StorageGameTests {
         player.containerMenu = menu;
         long stale = storage.revision();
         storage.createFolder(0, "Other change");
-        menu.handle(new StorageNetwork.Request(1, stale, StorageNetwork.Action.WITHDRAW, id, 0, 64, ""));
+        menu.handle(new StorageNetwork.Request(1, stale, StorageNetwork.Action.WITHDRAW, id, 0, 64, "").withSession(menu.session()));
         helper.assertTrue(storage.total() == 64, "Stale request extracted items");
-        menu.handle(new StorageNetwork.Request(1, storage.revision(), StorageNetwork.Action.WITHDRAW, id, 0, 32, ""));
+        menu.handle(new StorageNetwork.Request(1, storage.revision(), StorageNetwork.Action.WITHDRAW, id, 0, 32, "").withSession(menu.session()));
         helper.assertTrue(storage.total() == 32, "Fresh request should extract exactly 32");
         player.setPos(pos.getX() + 20, pos.getY(), pos.getZ());
-        menu.handle(new StorageNetwork.Request(1, storage.revision(), StorageNetwork.Action.WITHDRAW, id, 0, 32, ""));
+        menu.handle(new StorageNetwork.Request(1, storage.revision(), StorageNetwork.Action.WITHDRAW, id, 0, 32, "").withSession(menu.session()));
         helper.assertTrue(storage.total() == 32, "Distant player extracted items");
         helper.succeed();
     }

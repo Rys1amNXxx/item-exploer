@@ -3,7 +3,7 @@ package dev.itemexplorer.network;
 import dev.itemexplorer.ItemExplorer;
 import dev.itemexplorer.client.ClientEvents;
 import dev.itemexplorer.menu.StorageMenu;
-import dev.itemexplorer.storage.StorageInventory;
+import dev.itemexplorer.menu.NasMenu;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.resources.ResourceLocation;
@@ -20,20 +20,24 @@ import java.util.Optional;
 import java.util.function.Supplier;
 
 public final class StorageNetwork {
-    private static final String VERSION = "3";
+    private static final String VERSION = "4";
     private static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
             ResourceLocation.fromNamespaceAndPath(ItemExplorer.MOD_ID, "storage"), () -> VERSION, VERSION::equals, VERSION::equals);
 
-    public enum Action { OPEN, PAGE, CREATE, RENAME, DELETE, MOVE, WITHDRAW, DEPOSIT_CURSOR, RESIZE }
-    public record Request(int menuId, long revision, Action action, int id, int target, int amount, String name) {
+    public enum Action { OPEN, PAGE, CREATE, RENAME, DELETE, MOVE, WITHDRAW, DEPOSIT_CURSOR, RESIZE, SELECT_VOLUME, RENAME_DISK, DEPOSIT_SLOT }
+    public record Request(int menuId, long revision, Action action, int id, int target, long amount, String name, long session) {
+        public Request(int menuId, long revision, Action action, int id, int target, long amount, String name) {
+            this(menuId, revision, action, id, target, amount, name, 0);
+        }
+        public Request withSession(long session) { return new Request(menuId, revision, action, id, target, amount, name, session); }
         public static Request decode(FriendlyByteBuf buf) {
             return new Request(buf.readVarInt(), buf.readLong(), buf.readEnum(Action.class),
-                    buf.readVarInt(), buf.readVarInt(), buf.readVarInt(), buf.readUtf(StorageInventory.MAX_NAME));
+                    buf.readVarInt(), buf.readVarInt(), buf.readLong(), buf.readUtf(64), buf.readLong());
         }
 
         public void encode(FriendlyByteBuf buf) {
             buf.writeVarInt(menuId); buf.writeLong(revision); buf.writeEnum(action);
-            buf.writeVarInt(id); buf.writeVarInt(target); buf.writeVarInt(amount); buf.writeUtf(name, StorageInventory.MAX_NAME);
+            buf.writeVarInt(id); buf.writeVarInt(target); buf.writeLong(amount); buf.writeUtf(name, 64); buf.writeLong(session);
         }
 
         public void handle(Supplier<NetworkEvent.Context> context) {
@@ -41,6 +45,22 @@ public final class StorageNetwork {
                 ServerPlayer player = context.get().getSender();
                 if (player != null && player.containerMenu instanceof StorageMenu menu
                         && menu.containerId == menuId && menu.stillValid(player)) menu.handle(this);
+            });
+            context.get().setPacketHandled(true);
+        }
+    }
+
+    public record NasRequest(int menuId, long session, long revision, int bay, boolean eject) {
+        public static NasRequest decode(FriendlyByteBuf buf) {
+            return new NasRequest(buf.readVarInt(), buf.readLong(), buf.readLong(), buf.readVarInt(), buf.readBoolean());
+        }
+        public void encode(FriendlyByteBuf buf) {
+            buf.writeVarInt(menuId); buf.writeLong(session); buf.writeLong(revision); buf.writeVarInt(bay); buf.writeBoolean(eject);
+        }
+        public void handle(Supplier<NetworkEvent.Context> context) {
+            context.get().enqueueWork(() -> {
+                ServerPlayer player = context.get().getSender();
+                if (player != null && player.containerMenu instanceof NasMenu menu) menu.handle(this);
             });
             context.get().setPacketHandled(true);
         }
@@ -67,9 +87,12 @@ public final class StorageNetwork {
                 Optional.of(NetworkDirection.PLAY_TO_SERVER));
         CHANNEL.registerMessage(1, Snapshot.class, Snapshot::encode, Snapshot::decode, Snapshot::handle,
                 Optional.of(NetworkDirection.PLAY_TO_CLIENT));
+        CHANNEL.registerMessage(2, NasRequest.class, NasRequest::encode, NasRequest::decode, NasRequest::handle,
+                Optional.of(NetworkDirection.PLAY_TO_SERVER));
     }
 
     public static void request(Request request) { CHANNEL.sendToServer(request); }
+    public static void request(NasRequest request) { CHANNEL.sendToServer(request); }
     public static void snapshot(ServerPlayer player, int id, CompoundTag view) {
         CHANNEL.send(PacketDistributor.PLAYER.with(() -> player), new Snapshot(id, view));
     }

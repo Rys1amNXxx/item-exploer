@@ -30,7 +30,11 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
     private static final Set<String> QUIET_MESSAGES = Set.of("", "created", "renamed", "deleted", "moved",
             "deposited", "withdrawn", "no_change");
     private record Folder(int id, int parent, String name, int depth) {}
-    private record Entry(int id, ItemStack stack, int count) {}
+    private record Entry(int id, ItemStack stack, long count) {}
+    private record Volume(int id, String key, String name) {}
+    private List<Volume> volumes = List.of();
+    private boolean awaitingVolume;
+    private long volumeRequestedAt;
     private record Tile(Folder folder, Entry entry) {}
     private record Crumb(int id, String name, String display, int x, int width) {}
     private StorageLayout layout;
@@ -82,13 +86,13 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
         next = button(imageWidth - 26, 23, 18, "next", b -> changePage(1));
         int x = layout.controlsX(), y = layout.controlsY();
         quantity = addRenderableWidget(new EditBox(font, leftPos + x + 27, topPos + y + 1, 39, 16, label("quantity")));
-        quantity.setMaxLength(4);
-        quantity.setFilter(s -> s.matches("[0-9]{0,4}"));
+        quantity.setMaxLength(19);
+        quantity.setFilter(s -> s.matches("[0-9]{0,19}"));
         quantity.setValue(savedQuantity);
         withdraw = button(x + 72, y, 44, "withdraw", b -> send(Action.WITHDRAW, selected, 0, amount(), ""));
         move = button(x + 120, y, 64, "move", b -> choosingTarget = !choosingTarget);
         all = button(x + 188, y, 44, "all", b -> {
-            Entry e = selectedEntry(); if (e != null) quantity.setValue(Integer.toString(e.count));
+            Entry e = selectedEntry(); if (e != null) quantity.setValue(Long.toString(e.count));
         });
         deposit = button(x + 240, y, 64, "deposit", b -> send(Action.DEPOSIT_CURSOR, 0, 0, 0, ""));
         withdraw.setTooltip(Tooltip.create(label("withdraw_hint")));
@@ -106,9 +110,11 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
         requestedPageSize = -1;
     }
 
-    private void send(Action action, int id, int target, int amount, String text) {
-        if (!menu.view().contains("Revision")) return;
-        StorageNetwork.request(new StorageNetwork.Request(menu.containerId, menu.view().getLong("Revision"), action, id, target, amount, text));
+    private void send(Action action, int id, int target, long amount, String text) {
+        if (!menu.view().contains("Revision") || awaitingVolume) return;
+        if (action == Action.MOVE && target < 0) { error = "cross_disk"; errorUntil = Util.getMillis() + 4500; return; }
+        StorageNetwork.request(new StorageNetwork.Request(menu.containerId, menu.view().getLong("Revision"), action, id, target, amount, text, menu.view().getLong("Session")));
+        if (action == Action.SELECT_VOLUME) { awaitingVolume = true; volumeRequestedAt = Util.getMillis(); }
         errorUntil = 0;
     }
 
@@ -116,6 +122,9 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
         if (choosingTarget && selected >= 0) {
             send(Action.MOVE, selected, id, amount(), "");
             choosingTarget = false;
+        } else if (id < 0) {
+            volumes.stream().filter(v -> v.id == id).findFirst().ifPresent(v -> send(Action.SELECT_VOLUME, 0, 0, 0, v.key));
+            selected = -1;
         } else {
             send(Action.OPEN, id, 0, 0, "");
             selected = -1;
@@ -123,8 +132,8 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
         quantity.setFocused(false); setFocused(null);
     }
 
-    private int amount() {
-        try { return Math.min(StorageInventory.CAPACITY, Integer.parseInt(quantity.getValue())); }
+    private long amount() {
+        try { return Math.max(0, Long.parseLong(quantity.getValue())); }
         catch (NumberFormatException e) { return 0; }
     }
 
@@ -140,17 +149,36 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
 
     private void refreshView() {
         if (cachedView == menu.view()) return;
+        boolean sessionChanged = cachedView == null || cachedView.getLong("Session") != menu.view().getLong("Session");
+        if (sessionChanged) {
+            selected = -1; choosingTarget = dragging = false; dragCandidate = -1; collapsed.clear();
+            if (modal) closeModal();
+        }
+        awaitingVolume = false;
         cachedView = menu.view();
+        List<Volume> decodedVolumes = new ArrayList<>();
+        String rootName = label("root").getString();
+        for (Tag tag : cachedView.getList("Volumes", Tag.TAG_COMPOUND)) {
+            CompoundTag v = (CompoundTag) tag; String key = v.getString("Id");
+            String name = key.isEmpty() ? label("root").getString() : v.getString("Name");
+            if (name.isEmpty()) name = v.getString("Tier").isEmpty() ? label("offline_disk").getString()
+                    : Component.translatable("item.itemexplorer.disk_" + v.getString("Tier")).getString() + " #" + v.getInt("Bay");
+            if (!v.getBoolean("Online")) name += " (" + label("offline").getString() + ")";
+            if (key.equals(cachedView.getString("Volume"))) rootName = name;
+            decodedVolumes.add(new Volume(-10 - decodedVolumes.size(), key, name));
+        }
+        volumes = decodedVolumes;
         List<Folder> decodedFolders = new ArrayList<>();
         parents.clear();
         for (Tag tag : cachedView.getList("Folders", Tag.TAG_COMPOUND)) {
             CompoundTag t = (CompoundTag) tag;
             int id = t.getInt("Id"), parent = t.getInt("Parent");
-            decodedFolders.add(new Folder(id, parent, id == 0 ? label("root").getString() : t.getString("Name"), 0));
+            decodedFolders.add(new Folder(id, parent, id == 0 ? rootName : t.getString("Name"), 0));
             parents.add(parent);
         }
+        if (decodedFolders.isEmpty()) decodedFolders.add(new Folder(0, -1, rootName, 0));
         folders = decodedFolders;
-        boolean folderChanged = lastFolder != current();
+        boolean folderChanged = sessionChanged || lastFolder != current();
         if (folderChanged) {
             lastFolder = current(); selected = -1; choosingTarget = false;
             Folder cursor = folder(current());
@@ -174,7 +202,7 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
         }
         for (Tag tag : cachedView.getList("Entries", Tag.TAG_COMPOUND)) {
             CompoundTag e = (CompoundTag) tag;
-            Entry entry = new Entry(e.getInt("Id"), ItemStack.of(e.getCompound("Stack")), e.getInt("Count"));
+            Entry entry = new Entry(e.getInt("Id"), ItemStack.of(e.getCompound("Stack")), e.getLong("Count"));
             decoded.add(entry); page.add(new Tile(null, entry));
         }
         entries = decoded; tiles = page;
@@ -185,7 +213,11 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
 
     private void rebuildTree() {
         List<Folder> visible = new ArrayList<>();
-        appendFolders(visible, -1, 0);
+        if (volumes.isEmpty()) appendFolders(visible, -1, 0);
+        for (Volume volume : volumes) {
+            if (volume.key.equals(menu.view().getString("Volume"))) appendFolders(visible, -1, 0);
+            else visible.add(new Folder(volume.id, -1, volume.name, 0));
+        }
         tree = visible;
         folderScroll = Math.max(0, Math.min(folderScroll, tree.size() - layout.treeRows()));
     }
@@ -280,7 +312,7 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
 
     private void submitModal() {
         if (!folderName.getValue().isBlank()) {
-            send(renaming ? Action.RENAME : Action.CREATE, 0, 0, 0, folderName.getValue());
+            send(renaming ? current() == 0 ? Action.RENAME_DISK : Action.RENAME : Action.CREATE, 0, 0, 0, folderName.getValue());
             closeModal();
         }
     }
@@ -291,15 +323,20 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
     @Override
     public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
         refreshView();
+        // A rate-limited selection may receive no reply. Keep the displayed old context and allow retry.
+        if (awaitingVolume && Util.getMillis() - volumeRequestedAt > 3000) {
+            awaitingVolume = false; error = "stale"; errorUntil = Util.getMillis() + 4500;
+        }
         if (menu.view().contains("Revision") && menu.view().getInt("PageSize") != layout.pageSize()
                 && (requestedPageSize != layout.pageSize() || Util.getMillis() - resizeRequestedAt > 1000)) {
             requestedPageSize = layout.pageSize(); resizeRequestedAt = Util.getMillis();
             send(Action.RESIZE, 0, 0, layout.pageSize(), "");
         }
         if (selectedEntry() == null) { selected = -1; choosingTarget = false; }
-        boolean writable = !menu.view().getBoolean("Locked");
+        boolean writable = menu.view().getBoolean("Available") && !menu.view().getBoolean("Locked") && !awaitingVolume;
         create.active = writable && !modal;
-        rename.active = delete.active = writable && current() != 0 && !modal;
+        rename.active = writable && (current() != 0 || !menu.view().getString("Volume").isEmpty()) && !modal;
+        delete.active = writable && current() != 0 && !modal;
         up.active = current() != 0 && !modal;
         previous.active = menu.view().getInt("Page") > 0 && !modal;
         next.active = menu.view().getInt("Page") + 1 < menu.view().getInt("Pages") && !modal;
@@ -331,13 +368,20 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
                 renderTooltip(g, mouseX, mouseY);
                 Tile tile = tileAt(mouseX, mouseY);
                 if (tile != null && menu.getCarried().isEmpty()) {
-                    if (tile.entry != null) g.renderTooltip(font, tile.entry.stack, mouseX, mouseY);
+                    if (tile.entry != null) {
+                        var lines = new ArrayList<>(getTooltipFromItem(minecraft, tile.entry.stack));
+                        lines.add(Component.translatable("gui.itemexplorer.exact_count", tile.entry.count));
+                        g.renderTooltip(font, lines, java.util.Optional.empty(), mouseX, mouseY);
+                    }
                     else g.renderTooltip(font, Component.literal(tile.folder.name), mouseX, mouseY);
                 }
                 Folder f = treeFolderAt(mouseX, mouseY);
                 if (f != null) g.renderTooltip(font, Component.literal(f.name), mouseX, mouseY);
                 Crumb crumb = crumbAt(mouseX, mouseY);
                 if (crumb != null) g.renderTooltip(font, Component.literal(crumb.name), mouseX, mouseY);
+                if (inside(mouseX, mouseY, imageWidth - 120, 5, 110, 15) && menu.view().getBoolean("Available"))
+                    g.renderTooltip(font, Component.translatable("gui.itemexplorer.exact_capacity", menu.view().getLong("Total"), menu.view().getLong("Capacity")), mouseX, mouseY);
+                if (quantity.isMouseOver(mouseX, mouseY)) g.renderTooltip(font, Component.literal(quantity.getValue()), mouseX, mouseY);
             }
         }
     }
@@ -382,7 +426,8 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
         g.renderItem(ModContent.STORAGE_ITEM.get().getDefaultInstance(), leftPos + 8, topPos + 5);
         text(g, label("title"), 28, 9, imageWidth - 140, TEXT);
         String capacity = menu.view().getBoolean("Locked") ? label("locked").getString()
-                : menu.view().getInt("Total") + " / " + StorageInventory.CAPACITY;
+                : !menu.view().getBoolean("Available") ? label("offline").getString()
+                : compact(menu.view().getLong("Total")) + " / " + compact(menu.view().getLong("Capacity"));
         text(g, Component.literal(capacity), imageWidth - 10 - font.width(capacity), 9, 110, MUTED);
         String page = (menu.view().getInt("Page") + 1) + "/" + Math.max(1, menu.view().getInt("Pages"));
         text(g, Component.literal(page), imageWidth - 44 - font.width(page) / 2, 28, 40, TEXT);
@@ -429,7 +474,7 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
             } else {
                 Entry e = tile.entry;
                 g.renderItem(e.stack, leftPos + x + 4, topPos + y + 2);
-                text(g, Component.literal("×" + e.count), x + 23, y + 6, w - 24, TEXT);
+                text(g, Component.literal("×" + compact(e.count)), x + 23, y + 6, w - 24, TEXT);
                 text(g, e.stack.getHoverName(), x + 4, y + 20, w - 6, TEXT);
             }
         }
@@ -440,8 +485,9 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
 
     private void renderError(GuiGraphics g) {
         boolean locked = menu.view().getBoolean("Locked");
-        if (!locked && Util.getMillis() >= errorUntil) return;
-        var lines = font.split(Component.translatable("message.itemexplorer." + (locked ? "storage_locked" : error)), imageWidth - 40);
+        boolean offline = menu.view().contains("Session") && !menu.view().getBoolean("Available");
+        if (!locked && !offline && Util.getMillis() >= errorUntil) return;
+        var lines = font.split(Component.translatable("message.itemexplorer." + (locked ? "storage_locked" : offline ? "disk_offline" : error)), imageWidth - 40);
         int h = lines.size() * font.lineHeight + 12;
         int x = 12, y = layout.controlsY() - h - 3;
         g.pose().pushPose(); g.pose().translate(0, 0, 250);
@@ -452,6 +498,7 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
 
     @Override
     public boolean mouseClicked(double x, double y, int button) {
+        if (awaitingVolume) return true;
         if (modal) {
             if (modalOk.mouseClicked(x, y, button) || modalCancel.mouseClicked(x, y, button)) return true;
             folderName.mouseClicked(x, y, button); setFocused(folderName); return true;
@@ -486,6 +533,20 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
         // The parent focuses the clicked button after its callback opens the modal.
         if (modal) { setFocused(folderName); folderName.setFocused(true); }
         return handled;
+    }
+
+    private static String compact(long count) {
+        if (count < 10_000) return Long.toString(count);
+        if (count < 1_000_000) return String.format(java.util.Locale.ROOT, "%.1fK", count / 1000.0);
+        if (count < 1_000_000_000) return String.format(java.util.Locale.ROOT, "%.1fM", count / 1000000.0);
+        return String.format(java.util.Locale.ROOT, "%.1fG", count / 1000000000.0);
+    }
+
+    @Override protected void slotClicked(net.minecraft.world.inventory.Slot slot, int slotId, int button, net.minecraft.world.inventory.ClickType type) {
+        if (awaitingVolume) return;
+        if (type == net.minecraft.world.inventory.ClickType.QUICK_MOVE && slot != null) {
+            send(Action.DEPOSIT_SLOT, slotId, 0, 0, "");
+        } else super.slotClicked(slot, slotId, button, type);
     }
 
     @Override

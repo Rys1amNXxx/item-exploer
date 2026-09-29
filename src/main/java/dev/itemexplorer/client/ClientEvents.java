@@ -3,6 +3,7 @@ package dev.itemexplorer.client;
 import dev.itemexplorer.ItemExplorer;
 import dev.itemexplorer.ModContent;
 import dev.itemexplorer.menu.StorageMenu;
+import dev.itemexplorer.menu.NasMenu;
 import dev.itemexplorer.network.StorageNetwork;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.MenuScreens;
@@ -17,12 +18,17 @@ public final class ClientEvents {
 
     @SubscribeEvent
     public static void setup(FMLClientSetupEvent event) {
-        event.enqueueWork(() -> MenuScreens.register(ModContent.STORAGE_MENU.get(), StorageScreen::new));
+        event.enqueueWork(() -> {
+            MenuScreens.register(ModContent.STORAGE_MENU.get(), StorageScreen::new);
+            MenuScreens.register(ModContent.NAS_MENU.get(), NasScreen::new);
+        });
     }
 
     public static void receive(StorageNetwork.Snapshot snapshot) {
         Minecraft minecraft = Minecraft.getInstance();
         if (minecraft.player != null && minecraft.player.containerMenu instanceof StorageMenu menu
+                && menu.containerId == snapshot.menuId()) menu.acceptView(snapshot.view());
+        if (minecraft.player != null && minecraft.player.containerMenu instanceof NasMenu menu
                 && menu.containerId == snapshot.menuId()) menu.acceptView(snapshot.view());
     }
 }

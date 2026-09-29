@@ -25,7 +25,7 @@ import net.minecraft.world.level.material.MapColor;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraftforge.network.NetworkHooks;
 
-public final class StorageBlock extends BaseEntityBlock {
+public class StorageBlock extends BaseEntityBlock {
     public StorageBlock() {
         super(Properties.of().mapColor(MapColor.METAL).strength(2.5F).sound(SoundType.METAL));
         registerDefaultState(stateDefinition.any().setValue(HorizontalDirectionalBlock.FACING, Direction.NORTH));

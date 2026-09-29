@@ -1,0 +1,23 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "redstone",
+  "pattern": [
+    "IRI",
+    "ICI",
+    "IRI"
+  ],
+  "key": {
+    "I": {
+      "item": "minecraft:iron_ingot"
+    },
+    "R": {
+      "item": "minecraft:comparator"
+    },
+    "C": {
+      "item": "minecraft:chest"
+    }
+  },
+  "result": {
+    "item": "itemexplorer:nas"
+  }
+}
