@@ -1,0 +1,13 @@
+2026-09-29T20:07:06.0763279+08:00 Started phase=seed launcherPid=31652 world=work\acceptance-restart\20260929-200705\normal
+2026-09-29T20:08:25.2190601+08:00 Exited phase=seed launcherPid=31652 exitCode=0
+2026-09-29T20:08:25.6354956+08:00 Started phase=verify launcherPid=13124 world=work\acceptance-restart\20260929-200705\normal
+2026-09-29T20:09:36.5198913+08:00 Exited phase=verify launcherPid=13124 exitCode=0
+2026-09-29T20:09:36.5251108+08:00 PASS normal shutdown and independent-JVM restart restored terminal, four disks and logistics configuration.
+2026-09-29T20:09:37.0983916+08:00 Started phase=seed-crash launcherPid=29360 world=work\acceptance-restart\20260929-200705\flushed-crash
+2026-09-29T20:10:55.2114521+08:00 Terminated only verified probe JVM pid=32164 after its explicit flush-complete marker
+2026-09-29T20:10:56.7411647+08:00 Exited phase=seed-crash launcherPid=29360 exitCode=1
+2026-09-29T20:10:57.2664991+08:00 Started phase=verify launcherPid=39832 world=work\acceptance-restart\20260929-200705\flushed-crash
+2026-09-29T20:12:04.9949084+08:00 Exited phase=verify launcherPid=39832 exitCode=0
+2026-09-29T20:12:05.0135178+08:00 PASS forced termination after completed save flush restored the committed snapshot in an independent JVM.
+2026-09-29T20:12:05.0151187+08:00 LIMIT: This does not verify writes after the last flush, a crash during flush, or power-loss durability.
+2026-09-29T20:12:05.0307709+08:00 ALL REQUESTED RESTART PROBES PASSED

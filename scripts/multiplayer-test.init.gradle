@@ -1,0 +1,61 @@
+// Opt-in real TCP acceptance. These sources never enter the release JAR or ordinary runClient.
+gradle.beforeProject { p -> p.afterEvaluate {
+    p.sourceSets.create('multiplayerTest') {
+        java.srcDir 'src/multiplayerTest/java'
+        compileClasspath += p.sourceSets.main.output + p.sourceSets.main.compileClasspath
+        runtimeClasspath += output + compileClasspath
+    }
+    def probeRoot = p.file(p.findProperty('multiplayerProbeDirectory') ?: 'work/acceptance-multiplayer/manual').absolutePath
+    def role = p.findProperty('multiplayerProbeRole') ?: 'server'
+    def run = role == 'server' ? p.minecraft.runs.server : p.minecraft.runs.client
+    run.workingDirectory = p.file("${probeRoot}/${role}")
+    run.property 'itemexplorer.multiplayerProbe', probeRoot
+    run.property 'itemexplorer.multiplayerName', role
+    run.property 'itemexplorer.multiplayerPort', p.findProperty('multiplayerProbePort') ?: '25589'
+    run.jvmArgs '-Xms256m', '-Xmx1536m'
+    run.mods.itemexplorer.source p.sourceSets.multiplayerTest
+    if (role != 'server') run.args '--username', role, '--width', '640', '--height', '480'
+    // Export the prepared JavaExec without starting it, so all three JVMs can run concurrently
+    // without holding a Gradle project lock or racing shared compilation outputs.
+    p.tasks.register('exportMultiplayerLaunch') {
+        dependsOn {
+            def launch = p.tasks.named(role == 'server' ? 'runServer' : 'runClient').get()
+            launch.taskDependencies.getDependencies(launch)
+        }
+        doLast {
+            def launch = p.tasks.named(role == 'server' ? 'runServer' : 'runClient').get()
+            // ForgeGradle 6.0.54 configures JavaExec inside MinecraftRunTask.exec(), not
+            // during task configuration. Reproduce only that preparation (never exec()).
+            def config = launch.runConfig.get()
+            def generator = launch.class.classLoader.loadClass('net.minecraftforge.gradle.common.util.runs.RunConfigGenerator')
+            def call = { name, Object[] parameters ->
+                def method = generator.declaredMethods.find { it.name == name }
+                method.accessible = true
+                method.invoke(null, parameters)
+            }
+            def sources = call('mapModClassesToGradle', [p, config] as Object[])
+            def tokens = call('configureTokensLazy', [p, config, sources, launch.minecraftArtifacts, launch.runtimeClasspathArtifacts] as Object[])
+            launch.workingDir = p.file(config.workingDirectory)
+            launch.args(call('getArgsStream', [config, tokens, false] as Object[]).toArray())
+            def explicitJvmArgs = config.jvmArgs.collect { config.replace(tokens, it) }
+            if (config.client) explicitJvmArgs += launch.additionalClientArgs.get().collect { config.replace(tokens, it) }
+            config.environment.each { key, value -> launch.environment(key, config.replace(tokens, value)) }
+            config.properties.each { key, value -> launch.systemProperty(key, config.replace(tokens, value)) }
+            config.allSources.each { launch.classpath(it.runtimeClasspath) }
+            def directory = p.file("${probeRoot}/${role}")
+            directory.mkdirs()
+            def exported = [
+                executable: launch.javaLauncher.get().executablePath.asFile.absolutePath,
+                directory: launch.workingDir.absolutePath,
+                arguments: explicitJvmArgs + launch.allJvmArgs + ['-cp', launch.classpath.asPath, launch.mainClass.get()] + launch.args,
+                environment: launch.environment.findAll { key, value -> key in ['MOD_CLASSES', 'MCP_MAPPINGS'] }
+            ]
+            if (!exported.arguments.contains('-Xmx1536m') || !exported.arguments.contains('--launchTarget')
+                    || launch.classpath.empty || !exported.environment.MOD_CLASSES?.contains('multiplayerTest')
+                    || launch.workingDir.canonicalFile != directory.canonicalFile)
+                throw new GradleException('Incomplete multiplayer Java launch export; no game process was started')
+            p.file("${directory}/launch.json").text = groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson(exported))
+            println "Prepared multiplayer ${role}: ${directory}/launch.json"
+        }
+    }
+} }

@@ -1,0 +1,20 @@
+// Isolated dedicated-server persistence probe. Never added to clients or release JARs.
+gradle.beforeProject { p -> p.afterEvaluate {
+    p.sourceSets.create('restartProbe') {
+        java.srcDir 'src/restartTest/java'
+        compileClasspath += p.sourceSets.main.output + p.sourceSets.main.compileClasspath
+        runtimeClasspath += output + compileClasspath
+    }
+    p.repositories.maven { url 'https://api.modrinth.com/maven' }
+    ['ae2:jYgSnxye', 'mekanism:uxe1WQp4', 'guideme:i7Tp1AHw'].each { mod ->
+        p.dependencies.add('runtimeOnly', p.fg.deobf("maven.modrinth:${mod}"))
+    }
+    p.minecraft.runs.server {
+        workingDirectory p.file(p.findProperty('restartProbeDirectory') ?: 'work/acceptance-restart')
+        property 'itemexplorer.restartProbe', p.findProperty('restartProbePhase') ?: 'verify'
+        property 'itemexplorer.restartProbeEnergy', p.findProperty('restartProbeEnergy') ?: 'false'
+        property 'mixin.env.remapRefMap', 'true'
+        property 'mixin.env.refMapRemappingFile', p.file('build/createSrgToMcp/output.srg').absolutePath
+        mods.itemexplorer.source p.sourceSets.restartProbe
+    }
+} }

@@ -1,0 +1,9 @@
+2026-09-29T20:16:18.1295182+08:00 PREPARED real server and two real client launches; no JVM launched yet.
+2026-09-29T20:22:07.7271593+08:00 START server pid=30472
+2026-09-29T20:22:38.3452629+08:00 START DevA pid=30540
+2026-09-29T20:22:38.3656722+08:00 START DevB pid=39360
+2026-09-29T20:23:38.6286866+08:00 EXIT server pid=30472 code=0
+2026-09-29T20:23:38.6318384+08:00 EXIT DevA pid=30540 code=0
+2026-09-29T20:23:38.6941210+08:00 EXIT DevB pid=39360 code=0
+2026-09-29T20:23:38.7103007+08:00 PASS actual dedicated server and DevA/DevB Forge clients used TCP for contested withdrawal, stale replay, fresh retry and closed-menu rejection.
+2026-09-29T20:23:38.7111110+08:00 LIMIT: local loopback only, without injected delay; not a test of WAN latency or network quality.

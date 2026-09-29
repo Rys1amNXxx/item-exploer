@@ -146,6 +146,8 @@ GameTest 使用独立的 `run-gametest/` 世界，测试代码和测试结构不
 GitHub Actions 会在 push / pull request 时执行 `build runGameTestServer`，
 保存验证日志，并在全部通过后保存 JAR；也可以手动触发。
 
+独立服务端重启、保存后强杀恢复、真实双客户端 TCP 和界面补充验收的结果、已知问题及复跑脚本见 [0.3.0 补充验收报告](docs/acceptance-2026-09-29.md)。
+
 其他任务：`runServer` 启动独立开发服务器，`runData` 运行资源生成。
 客户端使用 `run/`，服务端使用 `run-server/`，数据生成使用 `run-data/`。
 首次使用独立服务器时需自行阅读并处理 Minecraft EULA。

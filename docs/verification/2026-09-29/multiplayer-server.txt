@@ -1,0 +1,9 @@
+READY dedicated JVM pid=30472 initialIron=64
+JOIN DevA uuid=ecb0c900-f6fb-34a9-8ce8-ec5a46cbe721 remote=/127.0.0.1:58738 class=net.minecraft.server.level.ServerPlayer
+JOIN DevB uuid=29d763a1-6e4d-32e1-82e2-8e2701fc741d remote=/127.0.0.1:58739 class=net.minecraft.server.level.ServerPlayer
+CAPTURED both clients ready at revision=1
+RACE_PASS stored=16 DevA=48 DevB=0
+STALE_REPLAY_PASS stored=16 DevA=48 DevB=0
+RETRY_PASS stored=0 DevA=48 DevB=16
+CLOSED_MENU_PASS stored=32 DevA=48 DevB=16 totalIncludingAddedFixture=96
+PASS real dedicated server + two Forge TCP clients; no FakePlayer, no injected latency

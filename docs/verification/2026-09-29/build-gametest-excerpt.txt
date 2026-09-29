@@ -1,0 +1,8 @@
+Excerpt from work/acceptance-final-regression.log (2026-09-29).
+Command: dev.ps1 build runGameTestServer --init-script scripts/compat-test.init.gradle --console=plain
+Only completion lines are archived; the full local log includes intentional protection-fixture diagnostics.
+
+[20:25:26] [Server thread/INFO] [minecraft/GameTestServer]: ========= 63 GAME TESTS COMPLETE ======================
+[20:25:26] [Server thread/INFO] [minecraft/GameTestServer]: All 63 required tests passed :)
+BUILD SUCCESSFUL in 1m 10s
+15 actionable tasks: 6 executed, 9 up-to-date

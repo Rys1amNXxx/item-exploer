@@ -1,0 +1,44 @@
+START phase=verify pid=38124
+PASS Fresh process sourcePid=26916 verifierPid=38124
+PASS Terminal block persisted in region file
+PASS NAS block persisted in region file
+PASS Terminal and NAS are writable after restart
+PASS Terminal folders, counts, enchantments, damage, custom NBT, AE2 and Mekanism item payloads preserved [exact NBT equality]
+PASS Terminal access session regenerated
+PASS NAS identity, four bay stacks and disk UUIDs preserved [exact NBT equality]
+PASS Disk 0 re-mounted without owner conflict
+PASS Disk 0 name, tier, UUID, owner, folders and full item payloads preserved [exact NBT equality]
+PASS Disk 0 mount access session regenerated
+PASS Logistics port 0 online after restart
+PASS Port 0 volume, folder, input, output and recursive settings preserved [exact NBT equality]
+PASS Port 0 restored input policy; simulation does not mutate
+PASS Port 0 restored recursive scope visibleEntries=4
+PASS Port 0 restored output policy; simulation does not mutate
+PASS Post-restart real extraction removes exactly 3
+PASS Post-restart real insertion restores exactly 3
+PASS Post-restart transfer conserves full disk contents [exact NBT equality]
+PASS Disk 1 re-mounted without owner conflict
+PASS Disk 1 name, tier, UUID, owner, folders and full item payloads preserved [exact NBT equality]
+PASS Disk 1 mount access session regenerated
+PASS Logistics port 1 online after restart
+PASS Port 1 volume, folder, input, output and recursive settings preserved [exact NBT equality]
+PASS Port 1 restored input policy; simulation does not mutate
+PASS Port 1 restored recursive scope visibleEntries=1
+PASS Port 1 restored output policy; simulation does not mutate
+PASS Disk 2 re-mounted without owner conflict
+PASS Disk 2 name, tier, UUID, owner, folders and full item payloads preserved [exact NBT equality]
+PASS Disk 2 mount access session regenerated
+PASS Logistics port 2 online after restart
+PASS Port 2 volume, folder, input, output and recursive settings preserved [exact NBT equality]
+PASS Port 2 restored input policy; simulation does not mutate
+PASS Port 2 restored recursive scope visibleEntries=4
+PASS Port 2 restored output policy; simulation does not mutate
+PASS Disk 3 re-mounted without owner conflict
+PASS Disk 3 name, tier, UUID, owner, folders and full item payloads preserved [exact NBT equality]
+PASS Disk 3 mount access session regenerated
+PASS Logistics port 3 online after restart
+PASS Port 3 volume, folder, input, output and recursive settings preserved [exact NBT equality]
+PASS Port 3 restored input policy; simulation does not mutate
+PASS Port 3 restored recursive scope visibleEntries=1
+PASS Port 3 restored output policy; simulation does not mutate
+VERIFY_PASS independent JVM restored every fixture and active logistics capability
