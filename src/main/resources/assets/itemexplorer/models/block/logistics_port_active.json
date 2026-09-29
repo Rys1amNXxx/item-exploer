@@ -1,0 +1,6 @@
+{
+  "parent": "itemexplorer:block/logistics_port",
+  "textures": {
+    "front": "itemexplorer:block/port_face_active"
+  }
+}

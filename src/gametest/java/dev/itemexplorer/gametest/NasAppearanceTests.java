@@ -12,6 +12,10 @@ import net.minecraft.nbt.Tag;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.HorizontalDirectionalBlock;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.phys.shapes.BooleanOp;
+import net.minecraft.world.phys.shapes.Shapes;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
@@ -20,6 +24,36 @@ import java.util.UUID;
 @GameTestHolder(ItemExplorer.MOD_ID)
 @PrefixGameTestTemplate(false)
 public final class NasAppearanceTests {
+    @GameTest(template = "empty")
+    public static void recessedCaseKeepsNeighborFacesInEveryOrientation(GameTestHelper h) {
+        BlockPos pos = h.absolutePos(new BlockPos(2, 2, 2));
+        var level = h.getLevel();
+        var stone = Blocks.STONE.defaultBlockState();
+        for (Direction facing : Direction.Plane.HORIZONTAL) {
+            var nas = ModContent.NAS_BLOCK.get().defaultBlockState().setValue(HorizontalDirectionalBlock.FACING, facing);
+            level.setBlockAndUpdate(pos, nas);
+            h.assertTrue(!Shapes.joinIsNotEmpty(nas.getCollisionShape(level, pos), Shapes.block(), BooleanOp.NOT_SAME)
+                    && !Shapes.joinIsNotEmpty(nas.getShape(level, pos), Shapes.block(), BooleanOp.NOT_SAME),
+                    "NAS occlusion fix changed collision or selection bounds");
+            for (Direction side : Direction.values()) {
+                BlockPos neighbor = pos.relative(side);
+                for (var adjacent : new net.minecraft.world.level.block.state.BlockState[]{stone, Blocks.GRASS_BLOCK.defaultBlockState(), Blocks.GLASS.defaultBlockState()}) {
+                    level.setBlockAndUpdate(neighbor, adjacent);
+                    h.assertTrue(Block.shouldRenderFace(adjacent, level, neighbor, side.getOpposite(), pos),
+                            "NAS hides an exposed neighbor face: facing=" + facing + ", side=" + side + ", neighbor=" + adjacent);
+                }
+                level.setBlockAndUpdate(neighbor, stone);
+            }
+            h.assertTrue(!nas.getFaceOcclusionShape(level, pos, facing).isEmpty(), "Solid front rim stopped providing any occlusion");
+            h.assertTrue(nas.getFaceOcclusionShape(level, pos, facing.getOpposite()).isEmpty(), "Inset back still occludes its neighbor");
+        }
+        // Full-cube terminals retain normal face culling; this fix is specific to the NAS.
+        level.setBlockAndUpdate(pos, ModContent.STORAGE_BLOCK.get().defaultBlockState());
+        for (Direction side : Direction.values()) h.assertTrue(!Block.shouldRenderFace(stone, level, pos.relative(side), side.getOpposite(), pos),
+                "NAS fix disabled face culling for full-cube terminals");
+        h.succeed();
+    }
+
     private static NasBlockEntity nas(GameTestHelper h, int x, int z, Direction facing) {
         BlockPos pos = new BlockPos(x, 2, z);
         h.setBlock(pos, ModContent.NAS_BLOCK.get().defaultBlockState().setValue(HorizontalDirectionalBlock.FACING, facing));

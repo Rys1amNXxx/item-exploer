@@ -1,0 +1,6 @@
+// Isolated visual review; the scene helper and GameTests never enter the release JAR.
+gradle.projectsEvaluated {
+    rootProject.minecraft.runs.client.workingDirectory = rootProject.file('work/logistics-review')
+    rootProject.minecraft.runs.client.property 'itemexplorer.review', 'true'
+    rootProject.minecraft.runs.client.mods.itemexplorer.source rootProject.sourceSets.gametest
+}

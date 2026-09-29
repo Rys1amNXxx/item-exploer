@@ -23,6 +23,7 @@ import java.nio.file.Path;
 public final class StorageBlockEntity extends BlockEntity implements MenuProvider {
     private static final Logger LOGGER = LogUtils.getLogger();
     private final StorageInventory inventory = new StorageInventory(this::setChanged);
+    private final String accessSession = java.util.UUID.randomUUID().toString();
     private Path recoveryArchive;
 
     public StorageBlockEntity(BlockPos pos, BlockState state) {
@@ -30,6 +31,7 @@ public final class StorageBlockEntity extends BlockEntity implements MenuProvide
     }
 
     public StorageInventory inventory() { return inventory; }
+    public String accessSession() { return accessSession; }
 
     @Override
     protected void saveAdditional(CompoundTag tag) {

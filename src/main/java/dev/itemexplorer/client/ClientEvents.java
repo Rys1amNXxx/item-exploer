@@ -4,6 +4,7 @@ import dev.itemexplorer.ItemExplorer;
 import dev.itemexplorer.ModContent;
 import dev.itemexplorer.menu.StorageMenu;
 import dev.itemexplorer.menu.NasMenu;
+import dev.itemexplorer.menu.LogisticsPortMenu;
 import dev.itemexplorer.network.StorageNetwork;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.MenuScreens;
@@ -31,6 +32,7 @@ public final class ClientEvents {
         event.enqueueWork(() -> {
             MenuScreens.register(ModContent.STORAGE_MENU.get(), StorageScreen::new);
             MenuScreens.register(ModContent.NAS_MENU.get(), NasScreen::new);
+            MenuScreens.register(ModContent.LOGISTICS_MENU.get(), LogisticsPortScreen::new);
         });
     }
 
@@ -39,6 +41,8 @@ public final class ClientEvents {
         if (minecraft.player != null && minecraft.player.containerMenu instanceof StorageMenu menu
                 && menu.containerId == snapshot.menuId()) menu.acceptView(snapshot.view());
         if (minecraft.player != null && minecraft.player.containerMenu instanceof NasMenu menu
+                && menu.containerId == snapshot.menuId()) menu.acceptView(snapshot.view());
+        if (minecraft.player != null && minecraft.player.containerMenu instanceof LogisticsPortMenu menu
                 && menu.containerId == snapshot.menuId()) menu.acceptView(snapshot.view());
     }
 }

@@ -60,6 +60,10 @@ public final class StorageInventory implements StorageAccess {
     public String loadProblem() { return loadProblem; }
     public long total() { return totalCount; }
     public long capacity() { return limits.capacity(); }
+    public int entryLimit() { return limits.entries(); }
+    public static boolean acceptsItem(ItemStack stack) {
+        return !(stack.getItem() instanceof DiskItem) && !(stack.getItem() instanceof BlockItem item && item.getBlock() instanceof StorageBlock);
+    }
     public boolean hasFolder(int id) { return folders.containsKey(id); }
     public Folder folder(int id) { return folders.get(id); }
     public List<Folder> folders() { return List.copyOf(folders.values()); }
@@ -144,7 +148,7 @@ public final class StorageInventory implements StorageAccess {
         requireWritable();
         requireFolder(folder);
         if (stack.isEmpty() || requested <= 0) return 0;
-        if (stack.getItem() instanceof DiskItem || stack.getItem() instanceof BlockItem item && item.getBlock() instanceof StorageBlock) {
+        if (!acceptsItem(stack)) {
             throw new IllegalArgumentException("nested_device");
         }
         int amount = (int) Math.min(Math.min(requested, stack.getCount()), capacity() - total());
@@ -330,7 +334,7 @@ public final class StorageInventory implements StorageAccess {
             ItemStack stack = ItemStack.of(sample);
             if (stack.isEmpty()) throw new IllegalArgumentException("unknown_item");
             if (!sample.equals(stack.save(new CompoundTag()))) throw new IllegalArgumentException("item_data_changed");
-            if (stack.getItem() instanceof DiskItem || stack.getItem() instanceof BlockItem item && item.getBlock() instanceof StorageBlock) {
+            if (!acceptsItem(stack)) {
                 throw new IllegalArgumentException("nested_device");
             }
             if (matching(folder, stack) != null) throw new IllegalArgumentException("duplicate_entry");

@@ -1,0 +1,14 @@
+// Opt-in real-mod validation; no mandatory production dependency is introduced.
+gradle.beforeProject { p -> p.afterEvaluate {
+    p.repositories.maven { url 'https://api.modrinth.com/maven' }
+    ['ae2:jYgSnxye', 'mekanism:uxe1WQp4', 'guideme:i7Tp1AHw'].each { mod ->
+        p.dependencies.add('runtimeOnly', p.fg.deobf("maven.modrinth:${mod}"))
+        p.dependencies.add('gametestImplementation', p.fg.deobf("maven.modrinth:${mod}"))
+    }
+    p.sourceSets.gametest.java.srcDir 'src/compatTest/java'
+    p.minecraft.runs.configureEach {
+        property 'mixin.env.remapRefMap', 'true'
+        property 'mixin.env.refMapRemappingFile', p.file('build/createSrgToMcp/output.srg').absolutePath
+    }
+    p.minecraft.runs.gameTestServer.workingDirectory = p.file('work/compat-gametest')
+} }

@@ -25,6 +25,7 @@ public final class ItemExplorer {
     private void creativeTab(BuildCreativeModeTabContentsEvent event) {
         if (event.getTabKey() == CreativeModeTabs.FUNCTIONAL_BLOCKS) {
             event.accept(ModContent.STORAGE_ITEM); event.accept(ModContent.NAS_ITEM);
+            event.accept(ModContent.LOGISTICS_ITEM);
             event.accept(ModContent.DISK_64K); event.accept(ModContent.DISK_256K);
             event.accept(ModContent.DISK_1M); event.accept(ModContent.DISK_16M);
         }

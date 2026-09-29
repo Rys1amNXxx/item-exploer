@@ -4,6 +4,7 @@ import dev.itemexplorer.ItemExplorer;
 import dev.itemexplorer.client.ClientEvents;
 import dev.itemexplorer.menu.StorageMenu;
 import dev.itemexplorer.menu.NasMenu;
+import dev.itemexplorer.menu.LogisticsPortMenu;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.resources.ResourceLocation;
@@ -20,7 +21,7 @@ import java.util.Optional;
 import java.util.function.Supplier;
 
 public final class StorageNetwork {
-    private static final String VERSION = "4";
+    private static final String VERSION = "5";
     private static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
             ResourceLocation.fromNamespaceAndPath(ItemExplorer.MOD_ID, "storage"), () -> VERSION, VERSION::equals, VERSION::equals);
 
@@ -66,6 +67,26 @@ public final class StorageNetwork {
         }
     }
 
+    public enum PortAction { SELECT, APPLY, DISCONNECT }
+    public record PortRequest(int menuId, long session, long context, long revision, PortAction action,
+                              String volume, int folder, boolean input, boolean output, boolean recursive) {
+        public static PortRequest decode(FriendlyByteBuf buf) {
+            return new PortRequest(buf.readVarInt(), buf.readLong(), buf.readLong(), buf.readLong(), buf.readEnum(PortAction.class),
+                    buf.readUtf(36), buf.readVarInt(), buf.readBoolean(), buf.readBoolean(), buf.readBoolean());
+        }
+        public void encode(FriendlyByteBuf buf) {
+            buf.writeVarInt(menuId); buf.writeLong(session); buf.writeLong(context); buf.writeLong(revision); buf.writeEnum(action);
+            buf.writeUtf(volume, 36); buf.writeVarInt(folder); buf.writeBoolean(input); buf.writeBoolean(output); buf.writeBoolean(recursive);
+        }
+        public void handle(Supplier<NetworkEvent.Context> context) {
+            context.get().enqueueWork(() -> {
+                ServerPlayer player = context.get().getSender();
+                if (player != null && player.containerMenu instanceof LogisticsPortMenu menu) menu.handle(this);
+            });
+            context.get().setPacketHandled(true);
+        }
+    }
+
     public record Snapshot(int menuId, CompoundTag view) {
         public static Snapshot decode(FriendlyByteBuf buf) {
             int id = buf.readVarInt();
@@ -89,10 +110,13 @@ public final class StorageNetwork {
                 Optional.of(NetworkDirection.PLAY_TO_CLIENT));
         CHANNEL.registerMessage(2, NasRequest.class, NasRequest::encode, NasRequest::decode, NasRequest::handle,
                 Optional.of(NetworkDirection.PLAY_TO_SERVER));
+        CHANNEL.registerMessage(3, PortRequest.class, PortRequest::encode, PortRequest::decode, PortRequest::handle,
+                Optional.of(NetworkDirection.PLAY_TO_SERVER));
     }
 
     public static void request(Request request) { CHANNEL.sendToServer(request); }
     public static void request(NasRequest request) { CHANNEL.sendToServer(request); }
+    public static void request(PortRequest request) { CHANNEL.sendToServer(request); }
     public static void snapshot(ServerPlayer player, int id, CompoundTag view) {
         CHANNEL.send(PacketDistributor.PLAYER.with(() -> player), new Snapshot(id, view));
     }

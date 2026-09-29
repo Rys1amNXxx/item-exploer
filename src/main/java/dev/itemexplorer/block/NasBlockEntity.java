@@ -103,6 +103,11 @@ public final class NasBlockEntity extends BlockEntity implements MenuProvider {
         return null;
     }
 
+    /** Read-only mount diagnosis for attached interfaces; never claims a disk. */
+    public String mountStatus(int slot) {
+        return online() && validSlot(slot) ? mount(slot, false) : "disk_offline";
+    }
+
     private String mount(int slot, boolean claim) {
         if (isLocked()) return "storage_locked";
         if (disks[slot].isEmpty()) return "empty_bay";

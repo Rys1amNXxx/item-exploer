@@ -8,6 +8,9 @@ import dev.itemexplorer.block.NasBlock;
 import dev.itemexplorer.block.NasBlockEntity;
 import dev.itemexplorer.disk.DiskItem;
 import dev.itemexplorer.disk.DiskTier;
+import dev.itemexplorer.block.LogisticsPortBlock;
+import dev.itemexplorer.block.LogisticsPortBlockEntity;
+import dev.itemexplorer.menu.LogisticsPortMenu;
 import net.minecraft.world.inventory.MenuType;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
@@ -34,6 +37,12 @@ public final class ModContent {
             () -> IForgeMenuType.create(StorageMenu::new));
 
     private ModContent() {}
+
+    public static final RegistryObject<Block> LOGISTICS_BLOCK = BLOCKS.register("logistics_port", LogisticsPortBlock::new);
+    public static final RegistryObject<Item> LOGISTICS_ITEM = ITEMS.register("logistics_port", () -> new BlockItem(LOGISTICS_BLOCK.get(), new Item.Properties()));
+    public static final RegistryObject<BlockEntityType<LogisticsPortBlockEntity>> LOGISTICS_ENTITY = ENTITIES.register("logistics_port",
+            () -> BlockEntityType.Builder.of(LogisticsPortBlockEntity::new, LOGISTICS_BLOCK.get()).build(null));
+    public static final RegistryObject<MenuType<LogisticsPortMenu>> LOGISTICS_MENU = MENUS.register("logistics_port", () -> IForgeMenuType.create(LogisticsPortMenu::new));
 
     public static final RegistryObject<Block> NAS_BLOCK = BLOCKS.register("nas", NasBlock::new);
     public static final RegistryObject<Item> NAS_ITEM = ITEMS.register("nas", () -> new BlockItem(NAS_BLOCK.get(), new Item.Properties()));
