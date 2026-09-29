@@ -11,10 +11,20 @@ import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.event.lifecycle.FMLClientSetupEvent;
+import net.minecraftforge.client.event.EntityRenderersEvent;
+import net.minecraftforge.client.event.ModelEvent;
 
 @Mod.EventBusSubscriber(modid = ItemExplorer.MOD_ID, bus = Mod.EventBusSubscriber.Bus.MOD, value = Dist.CLIENT)
 public final class ClientEvents {
     private ClientEvents() {}
+
+    @SubscribeEvent public static void registerRenderers(EntityRenderersEvent.RegisterRenderers event) {
+        event.registerBlockEntityRenderer(ModContent.NAS_ENTITY.get(), NasRenderer::new);
+    }
+    @SubscribeEvent public static void registerModels(ModelEvent.RegisterAdditional event) {
+        event.register(NasRenderer.TRAY); event.register(NasRenderer.BADGE);
+        event.register(NasRenderer.FRONT_LED); event.register(NasRenderer.TOP_LED);
+    }
 
     @SubscribeEvent
     public static void setup(FMLClientSetupEvent event) {

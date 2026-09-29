@@ -1,0 +1,38 @@
+{
+  "parent": "minecraft:block/block",
+  "textures": {
+    "particle": "minecraft:block/gray_concrete",
+    "case": "minecraft:block/gray_concrete",
+    "trim": "minecraft:block/light_gray_concrete",
+    "recess": "minecraft:block/black_concrete",
+    "metal": "minecraft:block/iron_block",
+    "white": "minecraft:block/white_concrete"
+  },
+  "elements": [
+    {
+      "from": [
+        10.25,
+        12.4,
+        0.58
+      ],
+      "to": [
+        11.5,
+        13.2,
+        0.6
+      ],
+      "shade": false,
+      "faces": {
+        "north": {
+          "texture": "#white",
+          "uv": [
+            2,
+            2,
+            14,
+            14
+          ],
+          "tintindex": 0
+        }
+      }
+    }
+  ]
+}

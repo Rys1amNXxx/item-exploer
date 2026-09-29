@@ -39,6 +39,7 @@ public final class StorageInventory implements StorageAccess {
     private int nextFolder = 1;
     private int nextEntry = 1;
     private long revision;
+    private long transferRevision;
     private Tag protectedData;
     private String loadProblem = "";
 
@@ -53,6 +54,8 @@ public final class StorageInventory implements StorageAccess {
     }
 
     public long revision() { return revision; }
+    /** Transient activity counter: successful item transfers only, never browsing or simulation. */
+    public long transferRevision() { return transferRevision; }
     public boolean isLocked() { return protectedData != null; }
     public String loadProblem() { return loadProblem; }
     public long total() { return totalCount; }
@@ -159,6 +162,7 @@ public final class StorageInventory implements StorageAccess {
             entries.put(match.id, new Entry(match.id, folder, match.stack, match.count + amount));
         }
         totalCount += amount;
+        transferRevision++;
         touch();
         return amount;
     }
@@ -173,6 +177,7 @@ public final class StorageInventory implements StorageAccess {
         if (amount == entry.count) entries.remove(id);
         else entries.put(id, new Entry(id, entry.folder, entry.stack, entry.count - amount));
         totalCount -= amount;
+        transferRevision++;
         touch();
         return entry.stack.copyWithCount(amount);
     }
@@ -200,6 +205,7 @@ public final class StorageInventory implements StorageAccess {
                 entries.put(match.id, new Entry(match.id, target, match.stack, match.count + amount));
             }
         }
+        transferRevision++;
         touch();
         return amount;
     }

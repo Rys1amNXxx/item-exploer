@@ -9,6 +9,8 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.Connection;
+import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.MenuProvider;
 import net.minecraft.world.entity.player.Inventory;
@@ -16,6 +18,8 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 import java.util.Arrays;
 import java.util.UUID;
@@ -28,6 +32,53 @@ public final class NasBlockEntity extends BlockEntity implements MenuProvider {
     private final long[] generations = new long[BAYS];
     private Tag protectedData;
     private long revision;
+    // Visual-only data is not persisted and never contains disk IDs, names or inventory.
+    private int appearance;
+    private final UUID[] observedDisks = new UUID[BAYS];
+    private final long[] observedTransfers = new long[BAYS], activeUntil = new long[BAYS];
+
+    public boolean hasVisibleDisk(int slot) { return (appearance & (1 << slot)) != 0; }
+    public boolean isVisibleOnline(int slot) { return (appearance & (1 << (4 + slot))) != 0; }
+    public int visibleTier(int slot) { return (appearance >> (8 + slot * 2)) & 3; }
+    public boolean isVisibleActive(int slot) { return (appearance & (1 << (16 + slot))) != 0; }
+    public boolean isVisibleLocked() { return (appearance & (1 << 20)) != 0; }
+
+    public static void serverTick(Level level, BlockPos pos, BlockState state, NasBlockEntity nas) {
+        // Coalesce bursts, sampling four small counters at most four times per second.
+        if ((level.getGameTime() + pos.asLong()) % 5 == 0) nas.refreshAppearance();
+    }
+
+    private void refreshAppearance() {
+        if (!online() || !level.getBlockState(worldPosition).is(ModContent.NAS_BLOCK.get())) return;
+        int next = isLocked() ? 1 << 20 : 0;
+        long now = level.getGameTime();
+        for (int i = 0; i < BAYS; i++) {
+            if (!disks[i].isEmpty()) {
+                next |= 1 << i;
+                next |= ((DiskItem) disks[i].getItem()).tier().ordinal() << (8 + i * 2);
+            }
+            DiskSavedData data = volume(i);
+            if (data == null) { observedDisks[i] = null; activeUntil[i] = 0; continue; }
+            next |= 1 << (4 + i);
+            long transfers = data.inventory().transferRevision();
+            if (data.id().equals(observedDisks[i]) && transfers != observedTransfers[i]) activeUntil[i] = now + 8;
+            observedDisks[i] = data.id(); observedTransfers[i] = transfers;
+            if (now < activeUntil[i]) next |= 1 << (16 + i);
+        }
+        if (appearance != next) {
+            appearance = next;
+            level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), Block.UPDATE_CLIENTS);
+        }
+    }
+
+    @Override public CompoundTag getUpdateTag() {
+        CompoundTag tag = new CompoundTag(); tag.putInt("Appearance", appearance); return tag;
+    }
+    @Override public ClientboundBlockEntityDataPacket getUpdatePacket() { return ClientboundBlockEntityDataPacket.create(this); }
+    @Override public void handleUpdateTag(CompoundTag tag) { appearance = tag.getInt("Appearance") & 0x1FFFFF; }
+    @Override public void onDataPacket(Connection connection, ClientboundBlockEntityDataPacket packet) {
+        if (packet.getTag() != null) handleUpdateTag(packet.getTag());
+    }
 
     public NasBlockEntity(BlockPos pos, BlockState state) {
         super(ModContent.NAS_ENTITY.get(), pos, state);
@@ -41,7 +92,7 @@ public final class NasBlockEntity extends BlockEntity implements MenuProvider {
     private ServerLevel server() { return (ServerLevel) level; }
     private boolean online() { return level instanceof ServerLevel && !isRemoved() && level.hasChunkAt(worldPosition) && level.getBlockEntity(worldPosition) == this; }
     private CompoundTag owner(int slot) { return DiskSavedData.owner(server(), worldPosition, nasId, slot); }
-    private void touch(int slot) { generations[slot]++; revision++; setChanged(); }
+    private void touch(int slot) { generations[slot]++; revision++; setChanged(); refreshAppearance(); }
 
     public DiskSavedData volume(int slot) {
         if (!online() || !validSlot(slot) || isLocked()) return null;
@@ -141,6 +192,7 @@ public final class NasBlockEntity extends BlockEntity implements MenuProvider {
         if (level != null && !level.isClientSide) {
             for (int i = 0; i < BAYS; i++) mount(i, true);
             archiveProtectedData();
+            refreshAppearance();
         }
     }
 
@@ -164,6 +216,7 @@ public final class NasBlockEntity extends BlockEntity implements MenuProvider {
 
     @Override public void load(CompoundTag tag) {
         super.load(tag); Arrays.fill(disks, ItemStack.EMPTY); protectedData = null;
+        appearance = 0; Arrays.fill(observedDisks, null); Arrays.fill(activeUntil, 0);
         if (!tag.contains("Nas")) return;
         Tag raw = tag.get("Nas");
         try {
