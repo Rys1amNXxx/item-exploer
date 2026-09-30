@@ -23,6 +23,7 @@ import net.minecraft.client.resources.model.BakedModel;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
+import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.effect.MobEffectInstance;
@@ -68,6 +69,8 @@ public final class BaseStationClientProbe {
     private static final BlockPos TERMINAL = CENTER.south(2).east(3);
     private static final BlockPos NAS_WIRE = TERMINAL.east();
     private static final BlockPos NAS_A = TERMINAL.east(3), NAS_B = TERMINAL.east(2).south(3);
+    private static final TerminalView TERMINAL_FRONT = terminalView(82.3, 82.75, 79.6);
+    private static final TerminalView TERMINAL_REAR = terminalView(81.6, 82.75, 85.4);
     private static String selectedDisk;
     private static boolean initialized, setupQueued, done, worldRendered;
     private static volatile boolean fixtureReady;
@@ -79,6 +82,10 @@ public final class BaseStationClientProbe {
     private static BaseStationScreen renderedScreen;
     private static StorageScreen renderedStorage;
     private static Path root;
+    private static TerminalView terminalView;
+    private static int terminalViewFrames;
+
+    private record TerminalView(double x, double y, double z, float yaw, float pitch) {}
 
     private BaseStationClientProbe() {}
 
@@ -379,7 +386,38 @@ public final class BaseStationClientProbe {
                 }
                 case 23 -> {
                     if (!captured("cable-nas-minimum.png")) return;
-                    log("PASS local NAS reconnect and minimum-window terminal; all checks; screenshots=11; real models + integrated server + storage requests; ticks=" + ticks);
+                    log("PASS local NAS reconnect and minimum-window terminal");
+                    GLFW.glfwSetWindowSize(mc.getWindow().getWindow(), 960, 720);
+                    mc.resizeDisplay();
+                    mc.player.closeContainer();
+                    mc.setScreen(null);
+                    mc.options.hideGui = true;
+                    mc.options.fov().set(32);
+                    queueTerminalView(mc, TERMINAL_FRONT);
+                    advance(24);
+                }
+                case 24 -> {
+                    if (!terminalViewReady(mc) || terminalViewFrames < 20 || ticks - stageSince < 10) return;
+                    check(mc.level.getBlockState(mc.gameRenderer.getMainCamera().getBlockPosition()).isAir(),
+                            "Terminal front camera is inside a block");
+                    screenshot("terminal-front.png", true);
+                    advance(25);
+                }
+                case 25 -> {
+                    if (!captured("terminal-front.png")) return;
+                    queueTerminalView(mc, TERMINAL_REAR);
+                    advance(26);
+                }
+                case 26 -> {
+                    if (!terminalViewReady(mc) || terminalViewFrames < 20 || ticks - stageSince < 10) return;
+                    check(mc.level.getBlockState(mc.gameRenderer.getMainCamera().getBlockPosition()).isAir(),
+                            "Terminal rear camera is inside a block");
+                    screenshot("terminal-rear.png", true);
+                    advance(27);
+                }
+                case 27 -> {
+                    if (!captured("terminal-rear.png")) return;
+                    log("PASS terminal front/top/side and rear socket close-ups at 960x720; all checks; screenshots=13; real models + integrated server + storage requests; ticks=" + ticks);
                     Files.writeString(root.resolve("result.txt"), "PASS\n", StandardCharsets.UTF_8);
                     done = true;
                     mc.stop();
@@ -387,6 +425,37 @@ public final class BaseStationClientProbe {
                 default -> throw new IllegalStateException("Unknown stage " + stage);
             }
         } catch (Throwable failure) { fail(mc, failure); }
+    }
+
+    private static TerminalView terminalView(double x, double y, double z) {
+        double dx = TERMINAL.getX() + 0.5 - x, dz = TERMINAL.getZ() + 0.5 - z;
+        double dy = TERMINAL.getY() + 0.55 - (y + 1.62);
+        return new TerminalView(x, y, z, (float) Math.toDegrees(Math.atan2(-dx, dz)),
+                (float) -Math.toDegrees(Math.atan2(dy, Math.sqrt(dx * dx + dz * dz))));
+    }
+
+    private static void queueTerminalView(Minecraft mc, TerminalView view) {
+        terminalView = view;
+        terminalViewFrames = 0;
+        var server = mc.getSingleplayerServer();
+        var playerId = mc.player.getUUID();
+        server.execute(() -> {
+            try {
+                var player = server.getPlayerList().getPlayer(playerId);
+                player.getAbilities().flying = true;
+                player.onUpdateAbilities();
+                player.teleportTo(server.overworld(), view.x(), view.y(), view.z(), view.yaw(), view.pitch());
+            } catch (Throwable failure) { fixtureFailure = failure; }
+        });
+    }
+
+    private static boolean terminalViewReady(Minecraft mc) {
+        if (terminalView == null || mc.player == null || mc.screen != null
+                || mc.getWindow().getWidth() != 960 || mc.getWindow().getHeight() != 720) return false;
+        var view = terminalView;
+        return mc.player.distanceToSqr(view.x(), view.y(), view.z()) < 0.0025
+                && Math.abs(Mth.wrapDegrees(mc.player.getYRot() - view.yaw())) < 0.25F
+                && Math.abs(mc.player.getXRot() - view.pitch()) < 0.25F;
     }
 
     private static void assemble(net.minecraft.server.level.ServerLevel level, BlockPos center) {
@@ -445,6 +514,7 @@ public final class BaseStationClientProbe {
         Minecraft mc = Minecraft.getInstance();
         if (mc.screen == null) {
             worldFrames++;
+            terminalViewFrames = terminalViewReady(mc) ? terminalViewFrames + 1 : 0;
             if (pendingScreenshot != null && pendingWorldScreenshot) capture(mc);
         }
     }
