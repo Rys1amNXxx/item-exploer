@@ -6,7 +6,8 @@
     "screen": "minecraft:block/cyan_concrete",
     "bezel": "minecraft:block/black_concrete",
     "folder": "minecraft:block/yellow_concrete",
-    "led": "minecraft:block/lime_concrete"
+    "led": "minecraft:block/lime_concrete",
+    "data_socket": "itemexplorer:block/terminal_data_socket"
   },
   "elements": [
     {
@@ -16,7 +17,7 @@
         "south": { "texture": "#case", "cullface": "south" },
         "east": { "texture": "#case", "cullface": "east" },
         "west": { "texture": "#case", "cullface": "west" },
-        "up": { "texture": "#case", "cullface": "up" },
+        "up": { "texture": "#data_socket", "cullface": "up" },
         "down": { "texture": "#case", "cullface": "down" }
       }
     },

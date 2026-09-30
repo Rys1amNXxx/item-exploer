@@ -1,6 +1,7 @@
 package dev.itemexplorer.block;
 
 import dev.itemexplorer.station.BaseStationStructure;
+import dev.itemexplorer.cable.DataCableEndpoint;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.InteractionHand;
@@ -27,7 +28,7 @@ import java.util.EnumMap;
 import java.util.Map;
 
 /** Visible parts keep their individual models before and after the station is assembled. */
-public final class BaseStationPartBlock extends Block {
+public final class BaseStationPartBlock extends Block implements DataCableEndpoint {
     public enum Part { CASING, NETWORK_PORT, MODULE, ANTENNA, CAP }
     public static final DirectionProperty FACING = HorizontalDirectionalBlock.FACING;
     private static final Map<Direction, VoxelShape> ANTENNA_SHAPES = antennaShapes();
@@ -46,6 +47,9 @@ public final class BaseStationPartBlock extends Block {
     }
 
     public Part part() { return part; }
+    @Override public boolean acceptsDataCable(BlockState state, Direction face) {
+        return part == Part.NETWORK_PORT && face == state.getValue(FACING);
+    }
 
     @Override protected void createBlockStateDefinition(StateDefinition.Builder<Block, BlockState> builder) { builder.add(FACING); }
     @Override public BlockState getStateForPlacement(BlockPlaceContext context) {

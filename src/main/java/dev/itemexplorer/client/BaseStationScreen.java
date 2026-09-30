@@ -2,6 +2,7 @@ package dev.itemexplorer.client;
 
 import dev.itemexplorer.menu.BaseStationMenu;
 import dev.itemexplorer.station.BaseStationStructure;
+import dev.itemexplorer.station.StationConnection;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
@@ -80,9 +81,12 @@ public final class BaseStationScreen extends AbstractContainerScreen<BaseStation
         line(g, label(menu.complete() ? "complete" : "incomplete"), 11, 36,
                 menu.complete() ? 0xff286539 : 0xff953c30, imageWidth - 22);
         line(g, label("count", menu.matched(), BaseStationStructure.TOTAL_PARTS), 11, 49, 0xff35434b, imageWidth - 22);
-        line(g, label("network_disconnected"), 11, 62, 0xff53636b, imageWidth - 22);
+        line(g, Component.translatable(menu.cable().status().key()), 11, 62,
+                menu.cable().status() == StationConnection.Status.CONNECTED ? 0xff286539 : 0xff53636b, imageWidth - 22);
         if (menu.complete()) {
-            int y = 94;
+            line(g, Component.translatable("gui.itemexplorer.cable_counts", menu.cable().cables(), menu.cable().terminals()),
+                    11, 78, 0xff53636b, imageWidth - 22);
+            int y = 100;
             for (var line : font.split(label("ready_hint"), imageWidth - 32)) {
                 g.drawString(font, line, leftPos + 16, topPos + y, 0xff35434b, false);
                 y += 12;

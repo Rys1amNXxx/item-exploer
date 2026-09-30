@@ -7,6 +7,7 @@ import dev.itemexplorer.network.StorageNetwork;
 import dev.itemexplorer.network.StorageNetwork.Action;
 import dev.itemexplorer.storage.StorageInventory;
 import dev.itemexplorer.storage.StorageSearch;
+import dev.itemexplorer.station.StationConnection;
 import net.minecraft.Util;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
@@ -36,7 +37,7 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
     private record Folder(int id, int parent, String name, int depth) {}
     private record Entry(int id, int folder, ItemStack stack, long count) {}
     private record CatalogEntry(int id, int folder, String item, String nameJson, String name) {}
-    private record Volume(int id, String key, String name) {}
+    private record Volume(int id, String key, String name, String source) {}
     private List<Volume> volumes = List.of();
     private boolean awaitingVolume;
     private long volumeRequestedAt;
@@ -358,9 +359,13 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
             String name = key.isEmpty() ? label("root").getString() : v.getString("Name");
             if (name.isEmpty()) name = v.getString("Tier").isEmpty() ? label("offline_disk").getString()
                     : Component.translatable("item.itemexplorer.disk_" + v.getString("Tier")).getString() + " #" + v.getInt("Bay");
+            String source = v.contains("NasIndex") ? Component.translatable("gui.itemexplorer.nas_disk_source",
+                    v.getInt("NasX"), v.getInt("NasY"), v.getInt("NasZ"), v.getInt("Bay")).getString() : "";
+            if (cachedView.getInt("NasCount") > 1 && v.contains("NasIndex"))
+                name = Component.translatable("gui.itemexplorer.nas_disk_label", v.getInt("NasIndex"), v.getInt("Bay"), name).getString();
             if (!v.getBoolean("Online")) name += " (" + label("offline").getString() + ")";
             if (key.equals(cachedView.getString("Volume"))) rootName = name;
-            decodedVolumes.add(new Volume(-10 - decodedVolumes.size(), key, name));
+            decodedVolumes.add(new Volume(-10 - decodedVolumes.size(), key, name, source));
         }
         volumes = decodedVolumes;
         List<Folder> decodedFolders = new ArrayList<>();
@@ -598,6 +603,21 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
                 g.pose().popPose();
             } else {
                 renderTooltip(g, mouseX, mouseY);
+                if (inside(mouseX, mouseY, 6, 5, 20, 16)) {
+                    var lines = new ArrayList<Component>();
+                    String wireState = menu.view().getString("CableStorageStatus");
+                    lines.add(label("local_wire_" + (wireState.isEmpty() ? "checking" : wireState)));
+                    lines.add(Component.translatable("gui.itemexplorer.local_nas_count", menu.view().getInt("NasCount"), menu.view().getInt("WiredNasCount")));
+                    lines.add(Component.translatable(menu.cable().status().key()));
+                    lines.add(Component.translatable("gui.itemexplorer.cable_counts", menu.cable().cables(), menu.cable().terminals()));
+                    if (menu.cable().status() == StationConnection.Status.CONNECTED) {
+                        var station = menu.cable().controller();
+                        lines.add(Component.translatable("gui.itemexplorer.cable_station", station.getX(), station.getY(), station.getZ()));
+                    }
+                    lines.add(label("cable_terminal_hint"));
+                    lines.add(label("cable_local_only"));
+                    g.renderTooltip(font, lines, java.util.Optional.empty(), mouseX, mouseY);
+                }
                 Tile tile = tileAt(mouseX, mouseY);
                 if (tile != null && menu.getCarried().isEmpty()) {
                     if (tile.entry != null) {
@@ -612,7 +632,12 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
                     else g.renderTooltip(font, Component.literal(tile.folder.name), mouseX, mouseY);
                 }
                 Folder f = treeFolderAt(mouseX, mouseY);
-                if (f != null) g.renderTooltip(font, Component.literal(f.name), mouseX, mouseY);
+                if (f != null) {
+                    Volume drive = volumes.stream().filter(v -> v.id == f.id || f.id == 0 && v.key.equals(menu.view().getString("Volume"))).findFirst().orElse(null);
+                    if (drive != null && !drive.source.isEmpty())
+                        g.renderTooltip(font, List.of(Component.literal(f.name), Component.literal(drive.source)), java.util.Optional.empty(), mouseX, mouseY);
+                    else g.renderTooltip(font, Component.literal(f.name), mouseX, mouseY);
+                }
                 Crumb crumb = crumbAt(mouseX, mouseY);
                 if (crumb != null) g.renderTooltip(font, Component.literal(crumb.name), mouseX, mouseY);
                 if (inside(mouseX, mouseY, imageWidth - 120, 5, 110, 15) && menu.view().getBoolean("Available"))
@@ -662,6 +687,10 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
     protected void renderBg(GuiGraphics g, float partialTick, int mouseX, int mouseY) {
         panel(g, 0, 0, imageWidth, imageHeight);
         g.renderItem(ModContent.STORAGE_ITEM.get().getDefaultInstance(), leftPos + 8, topPos + 5);
+        // A compact wired-status badge preserves the existing title, capacity and search layout.
+        boolean connected = menu.cable().status() == StationConnection.Status.CONNECTED || menu.view().getInt("NasCount") > 0;
+        g.fill(leftPos + 20, topPos + 15, leftPos + 26, topPos + 21, 0xff303030);
+        g.fill(leftPos + 21, topPos + 16, leftPos + 25, topPos + 20, connected ? 0xff55ac72 : 0xffb7784c);
         text(g, label("title"), 28, 9, imageWidth - 140, TEXT);
         String capacity = menu.view().getBoolean("Locked") ? label("locked").getString()
                 : !menu.view().getBoolean("Available") ? label("offline").getString()

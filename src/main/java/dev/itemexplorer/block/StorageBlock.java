@@ -1,6 +1,7 @@
 package dev.itemexplorer.block;
 
 import dev.itemexplorer.storage.StorageInventory;
+import dev.itemexplorer.cable.DataCableEndpoint;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerPlayer;
@@ -25,7 +26,9 @@ import net.minecraft.world.level.material.MapColor;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraftforge.network.NetworkHooks;
 
-public class StorageBlock extends BaseEntityBlock {
+public class StorageBlock extends BaseEntityBlock implements DataCableEndpoint {
+    // Storage terminals and NAS cabinets (which extend this block) accept cables on all six faces.
+    @Override public boolean acceptsDataCable(BlockState state, Direction face) { return true; }
     public StorageBlock() {
         super(Properties.of().mapColor(MapColor.METAL).strength(2.5F).sound(SoundType.METAL));
         registerDefaultState(stateDefinition.any().setValue(HorizontalDirectionalBlock.FACING, Direction.NORTH));

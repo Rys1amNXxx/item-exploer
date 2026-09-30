@@ -24,7 +24,7 @@ import java.util.Objects;
 import java.util.function.Supplier;
 
 public final class StorageNetwork {
-    private static final String VERSION = "6";
+    private static final String VERSION = "8";
     private static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
             ResourceLocation.fromNamespaceAndPath(ItemExplorer.MOD_ID, "storage"), () -> VERSION, VERSION::equals, VERSION::equals);
 

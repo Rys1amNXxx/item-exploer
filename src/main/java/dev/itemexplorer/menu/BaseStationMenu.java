@@ -24,6 +24,8 @@ public final class BaseStationMenu extends AbstractContainerMenu {
     private final Player owner;
     private final BlockPos pos;
     private final ContainerData data;
+    private final CableConnectionData cable = new CableConnectionData();
+    public CableConnectionData cable() { return cable; }
 
     public BaseStationMenu(int id, Inventory inventory, FriendlyByteBuf buffer) {
         this(id, inventory, buffer.readBlockPos(), null);
@@ -54,9 +56,15 @@ public final class BaseStationMenu extends AbstractContainerMenu {
             @Override public int getCount() { return DATA_SIZE; }
         };
         addDataSlots(data);
+        if (station != null) cable.refresh(owner.level(), pos, true);
+        addDataSlots(cable);
     }
 
     public boolean ready() { return data.get(0) != 0; }
+    @Override public void broadcastChanges() {
+        if (station != null && stillValid(owner)) cable.refresh(owner.level(), pos, true);
+        super.broadcastChanges();
+    }
     public int matched() { return data.get(1); }
     public boolean complete() { return ready() && matched() == BaseStationStructure.TOTAL_PARTS; }
     public BlockPos position() { return pos; }

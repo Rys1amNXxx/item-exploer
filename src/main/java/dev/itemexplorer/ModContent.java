@@ -1,6 +1,7 @@
 package dev.itemexplorer;
 
 import dev.itemexplorer.block.StorageBlock;
+import dev.itemexplorer.block.DataCableBlock;
 import dev.itemexplorer.block.StorageBlockEntity;
 import dev.itemexplorer.menu.StorageMenu;
 import dev.itemexplorer.menu.NasMenu;
@@ -46,6 +47,9 @@ public final class ModContent {
             () -> IForgeMenuType.create(StorageMenu::new));
 
     private ModContent() {}
+
+    public static final RegistryObject<Block> DATA_CABLE_BLOCK = BLOCKS.register("data_cable", DataCableBlock::new);
+    public static final RegistryObject<Item> DATA_CABLE_ITEM = blockItem("data_cable", DATA_CABLE_BLOCK);
 
     public static final RegistryObject<Block> LOGISTICS_BLOCK = BLOCKS.register("logistics_port", LogisticsPortBlock::new);
     public static final RegistryObject<Item> LOGISTICS_ITEM = ITEMS.register("logistics_port", () -> new BlockItem(LOGISTICS_BLOCK.get(), new Item.Properties()));
@@ -99,6 +103,7 @@ public final class ModContent {
                         output.accept(STORAGE_ITEM.get());
                         output.accept(NAS_ITEM.get());
                         output.accept(LOGISTICS_ITEM.get());
+                        output.accept(DATA_CABLE_ITEM.get());
                         output.accept(DISK_64K.get());
                         output.accept(DISK_256K.get());
                         output.accept(DISK_1M.get());

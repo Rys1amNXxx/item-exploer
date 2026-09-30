@@ -1,0 +1,24 @@
+Base station real client acceptance
+START pid=41900 language=zh_cn
+PASS baked JSON models: 112 block states + 9 item models; all quads have real texture atlas sprites
+PASS isolated scene: complete 3x3x5 / 17 parts, second 16-part tower, adjacent solid block; frames=64
+SCREENSHOT station-models.png
+PASS complete inspector: real ContainerData 17/17, zero issues; gui=480x360
+SCREENSHOT station-complete.png
+PASS live inspector update without reopening: 16/17, missing cap at BlockPos{x=80, y=86, z=80}
+SCREENSHOT station-incomplete.png
+PASS rendered construction guide toggled through its real button
+SCREENSHOT station-guide.png
+PASS construction guide at minimum 640x480 window / 320x240 GUI
+SCREENSHOT station-guide-minimum.png
+PASS terminal wired status, controller coordinates, two remote NAS and all six drives over side wiring
+SCREENSHOT cable-terminal-connected.png
+PASS terminal updates to no station after cable break without reopening
+SCREENSHOT cable-terminal-disconnected.png
+PASS real remote-drive selection and withdrawal: 64 -> 48 stored, 16 in player inventory
+SCREENSHOT wired-nas-selected.png
+PASS open terminal reports disconnected remote drive without silently selecting local storage
+SCREENSHOT wired-nas-offline.png
+SCREENSHOT wired-nas-restored.png
+SCREENSHOT cable-nas-minimum.png
+PASS local NAS reconnect and minimum-window terminal; all checks; screenshots=11; real models + integrated server + storage requests; ticks=166

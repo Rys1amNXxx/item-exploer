@@ -2,7 +2,7 @@ package dev.itemexplorer.menu;
 
 import dev.itemexplorer.ModContent;
 import dev.itemexplorer.block.NasBlockEntity;
-import net.minecraft.world.level.block.HorizontalDirectionalBlock;
+import dev.itemexplorer.cable.CableStorageAccess;
 import dev.itemexplorer.block.StorageBlockEntity;
 import dev.itemexplorer.disk.DiskItem;
 import dev.itemexplorer.disk.DiskSavedData;
@@ -36,14 +36,18 @@ public final class StorageMenu extends AbstractContainerMenu {
     private final BlockPos pos;
     private final StorageBlockEntity blockEntity;
     private final Player player;
+    private final CableConnectionData cable = new CableConnectionData();
+    public CableConnectionData cable() { return cable; }
     private int currentFolder, page, pageSize = StorageInventory.PAGE_SIZE;
     private String volume = "", mountStamp = "local", message = "";
     private long session = MenuSession.next(), actionTick = -1;
     private int actionsThisTick;
     private boolean closed;
     private CompoundTag clientView = new CompoundTag(), sentView;
-    private long sentRevision = -2, sentNasRevision = -1, sentSession;
+    private long sentRevision = -2, sentSession;
     private String sentNasStamp = "";
+    private CableStorageAccess.Result nasAccess = new CableStorageAccess.Result(List.of(), 0, "checking");
+    private long nextTopologyCheck = Long.MIN_VALUE;
     private boolean searching, searchReady, searchRecursive;
     private int searchRoot, savedFolder, savedPage, savedPageSize, located = -1;
     private long querySeq, resultViewSeq, catalogRevision = -1, catalogSentTick = -1;
@@ -55,6 +59,8 @@ public final class StorageMenu extends AbstractContainerMenu {
     public StorageMenu(int id, Inventory inventory, BlockPos pos, StorageBlockEntity blockEntity) {
         super(ModContent.STORAGE_MENU.get(), id);
         this.pos = pos; this.blockEntity = blockEntity; this.player = inventory.player;
+        if (blockEntity != null) cable.refresh(player.level(), pos, false);
+        addDataSlots(cable);
         for (int row = 0; row < 3; row++) for (int col = 0; col < 9; col++)
             addSlot(new Slot(inventory, 9 + row * 9 + col, 79 + col * 18, 154 + row * 18));
         for (int col = 0; col < 9; col++) addSlot(new Slot(inventory, col, 79 + col * 18, 212));
@@ -80,14 +86,23 @@ public final class StorageMenu extends AbstractContainerMenu {
                 && player.distanceToSqr(pos.getX() + .5, pos.getY() + .5, pos.getZ() + .5) <= 64;
     }
     private NasBlockEntity nas() {
-        if (blockEntity == null || blockEntity.isRemoved()) return null;
-        BlockPos back = pos.relative(blockEntity.getBlockState().getValue(HorizontalDirectionalBlock.FACING).getOpposite());
-        return player.level().hasChunkAt(back) && player.level().getBlockEntity(back) instanceof NasBlockEntity nas && !nas.isRemoved() ? nas : null;
+        NasBlockEntity offline = null;
+        for (NasBlockEntity nas : nasAccess.cabinets()) {
+            int slot = bay(nas);
+            if (slot < 0) continue;
+            if (nas.volume(slot) != null) return nas;
+            if (offline == null) offline = nas;
+        }
+        return offline;
     }
     private int bay(NasBlockEntity nas) {
+        int offline = -1;
         if (nas != null && !volume.isEmpty()) for (int i = 0; i < NasBlockEntity.BAYS; i++)
-            if (volume.equals(String.valueOf(DiskItem.id(nas.disk(i))))) return i;
-        return -1;
+            if (volume.equals(String.valueOf(DiskItem.id(nas.disk(i))))) {
+                if (nas.volume(i) != null) return i;
+                if (offline < 0) offline = i;
+            }
+        return offline;
     }
     /** Resolve for every operation: callers never retain a removed disk's inventory handle. */
     private StorageAccess storage() {
@@ -97,7 +112,15 @@ public final class StorageMenu extends AbstractContainerMenu {
         return disk == null ? null : disk.inventory();
     }
     private void refreshMount() {
+        refreshMount(true);
+    }
+    private void refreshMount(boolean forceTopology) {
         if (blockEntity == null) return;
+        long now = player.level().getGameTime();
+        if (forceTopology || now >= nextTopologyCheck) {
+            nasAccess = CableStorageAccess.discover(player.level(), pos);
+            nextTopologyCheck = now + 20;
+        }
         NasBlockEntity nas = nas(); int bay = bay(nas);
         String stamp = volume.isEmpty() ? "local" : bay < 0 || nas.volume(bay) == null ? "offline:" + volume : nas.stamp(bay);
         if (!stamp.equals(mountStamp)) {
@@ -108,6 +131,9 @@ public final class StorageMenu extends AbstractContainerMenu {
     }
     public CompoundTag snapshot() {
         refreshMount();
+        return currentSnapshot();
+    }
+    private CompoundTag currentSnapshot() {
         StorageAccess storage = storage();
         if (storage != null && !storage.hasFolder(currentFolder)) {
             currentFolder = 0; page = 0;
@@ -131,30 +157,42 @@ public final class StorageMenu extends AbstractContainerMenu {
         view.putInt("Located", located);
         ListTag volumes = new ListTag();
         CompoundTag local = new CompoundTag(); local.putString("Id", ""); local.putBoolean("Online", true); volumes.add(local);
-        NasBlockEntity nas = nas(); boolean found = volume.isEmpty();
-        if (nas != null) for (int i = 0; i < NasBlockEntity.BAYS; i++) {
+        view.putInt("NasCount", nasAccess.cabinets().size()); view.putInt("WiredNasCount", nasAccess.wiredCabinets());
+        view.putString("CableStorageStatus", nasAccess.wireStatus());
+        Map<String, CompoundTag> disks = new LinkedHashMap<>();
+        for (int n = 0; n < nasAccess.cabinets().size(); n++) {
+          NasBlockEntity nas = nasAccess.cabinets().get(n);
+          for (int i = 0; i < NasBlockEntity.BAYS; i++) {
             ItemStack item = nas.disk(i);
             if (item.isEmpty() || DiskItem.id(item) == null) continue;
             CompoundTag disk = new CompoundTag(); String id = DiskItem.id(item).toString();
             DiskSavedData data = nas.volume(i);
             disk.putString("Id", id); disk.putString("Name", data == null ? item.hasCustomHoverName() ? item.getHoverName().getString() : "" : data.name());
             disk.putString("Tier", ((DiskItem) item.getItem()).tier().id());
-            disk.putInt("Bay", i + 1); disk.putBoolean("Online", data != null && !data.isLocked()); volumes.add(disk);
-            found |= volume.equals(id);
+            disk.putInt("Bay", i + 1); disk.putBoolean("Online", data != null && !data.isLocked());
+            disk.putInt("NasIndex", n + 1); disk.putInt("NasX", nas.getBlockPos().getX());
+            disk.putInt("NasY", nas.getBlockPos().getY()); disk.putInt("NasZ", nas.getBlockPos().getZ());
+            // A corrupt duplicate item must not shadow the drive's legitimate owner or create two UI identities.
+            if (!disks.containsKey(id) || disk.getBoolean("Online")) disks.put(id, disk);
+          }
         }
-        if (!found) { CompoundTag missing = new CompoundTag(); missing.putString("Id", volume); missing.putBoolean("Online", false); volumes.add(missing); }
+        disks.values().forEach(volumes::add);
+        if (!volume.isEmpty() && !disks.containsKey(volume)) { CompoundTag missing = new CompoundTag(); missing.putString("Id", volume); missing.putBoolean("Online", false); volumes.add(missing); }
         view.put("Volumes", volumes);
         return view;
     }
     private void sync(boolean force) {
         if (!(player instanceof ServerPlayer serverPlayer) || blockEntity == null) return;
-        refreshMount(); StorageAccess storage = storage(); NasBlockEntity nas = nas();
+        refreshMount(force); StorageAccess storage = storage();
         invalidateSearch(storage);
         boolean catalogSent = syncCatalog(serverPlayer, storage);
-        long revision = storage == null ? -1 : storage.revision(), nasRevision = nas == null ? -1 : nas.revision();
-        String nasStamp = nas == null ? "" : nas.stamp(0);
-        if (!force && !catalogSent && revision == sentRevision && nasRevision == sentNasRevision && session == sentSession && nasStamp.equals(sentNasStamp)) return;
-        CompoundTag view = snapshot();
+        long revision = storage == null ? -1 : storage.revision();
+        StringBuilder devices = new StringBuilder(nasAccess.wireStatus()).append(':').append(nasAccess.wiredCabinets());
+        for (NasBlockEntity nas : nasAccess.cabinets()) devices.append('|').append(nas.getBlockPos().asLong())
+                .append(':').append(nas.stamp(0)).append(':').append(nas.revision());
+        String nasStamp = devices.toString();
+        if (!force && !catalogSent && revision == sentRevision && session == sentSession && nasStamp.equals(sentNasStamp)) return;
+        CompoundTag view = currentSnapshot();
         if (force || catalogSent || !view.equals(sentView)) {
             if (searching) {
                 view.putLong("ResultViewSeq", ++resultViewSeq);
@@ -165,10 +203,11 @@ public final class StorageMenu extends AbstractContainerMenu {
             }
             StorageNetwork.snapshot(serverPlayer, containerId, view); sentView = view;
         }
-        sentRevision = revision; sentNasRevision = nasRevision; sentSession = session; sentNasStamp = nasStamp;
+        sentRevision = revision; sentSession = session; sentNasStamp = nasStamp;
         message = "";
     }
     @Override public void broadcastChanges() {
+        if (blockEntity != null && stillValid(player)) cable.refresh(player.level(), pos, false);
         super.broadcastChanges();
         if (blockEntity != null && stillValid(player)) sync(false);
     }

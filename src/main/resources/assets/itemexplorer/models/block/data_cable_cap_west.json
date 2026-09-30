@@ -1,0 +1,26 @@
+{
+  "parent": "minecraft:block/block",
+  "textures": {
+    "wire": "itemexplorer:block/data_cable",
+    "particle": "itemexplorer:block/data_cable"
+  },
+  "elements": [
+    {
+      "from": [
+        7,
+        7,
+        7
+      ],
+      "to": [
+        9,
+        9,
+        9
+      ],
+      "faces": {
+        "west": {
+          "texture": "#wire"
+        }
+      }
+    }
+  ]
+}
