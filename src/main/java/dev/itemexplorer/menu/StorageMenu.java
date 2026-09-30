@@ -10,9 +10,11 @@ import dev.itemexplorer.network.StorageNetwork;
 import dev.itemexplorer.storage.StorageAccess;
 import dev.itemexplorer.storage.StorageInventory;
 import dev.itemexplorer.storage.StorageTransfers;
+import dev.itemexplorer.storage.SearchCatalogSupport;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.Tag;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.player.Inventory;
@@ -20,6 +22,14 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.ItemStack;
+
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 public final class StorageMenu extends AbstractContainerMenu {
     public static final int WIDTH = 320, HEIGHT = 234;
@@ -34,6 +44,12 @@ public final class StorageMenu extends AbstractContainerMenu {
     private CompoundTag clientView = new CompoundTag(), sentView;
     private long sentRevision = -2, sentNasRevision = -1, sentSession;
     private String sentNasStamp = "";
+    private boolean searching, searchReady, searchRecursive;
+    private int searchRoot, savedFolder, savedPage, savedPageSize, located = -1;
+    private long querySeq, resultViewSeq, catalogRevision = -1, catalogSentTick = -1;
+    private long publishedRevision = -1;
+    private Set<Integer> searchMatches = Set.of(), publishedSearchEntries = Set.of();
+    private final Map<Integer, CompoundTag> sentCatalog = new LinkedHashMap<>();
 
     public StorageMenu(int id, Inventory inventory, FriendlyByteBuf data) { this(id, inventory, data.readBlockPos(), null); }
     public StorageMenu(int id, Inventory inventory, BlockPos pos, StorageBlockEntity blockEntity) {
@@ -85,20 +101,34 @@ public final class StorageMenu extends AbstractContainerMenu {
         NasBlockEntity nas = nas(); int bay = bay(nas);
         String stamp = volume.isEmpty() ? "local" : bay < 0 || nas.volume(bay) == null ? "offline:" + volume : nas.stamp(bay);
         if (!stamp.equals(mountStamp)) {
+            exitSearch(true);
             mountStamp = stamp; session = MenuSession.next(); currentFolder = page = 0;
+            querySeq = 0; located = -1;
         }
     }
     public CompoundTag snapshot() {
         refreshMount();
         StorageAccess storage = storage();
-        if (storage != null && !storage.hasFolder(currentFolder)) { currentFolder = 0; page = 0; }
+        if (storage != null && !storage.hasFolder(currentFolder)) {
+            currentFolder = 0; page = 0;
+            if (searching) { searchRoot = 0; searchReady = false; publishedSearchEntries = Set.of(); }
+        }
+        invalidateSearch(storage);
         CompoundTag view;
         if (storage == null) {
             view = new CompoundTag(); view.putInt("Current", 0); view.putInt("Pages", 1); view.putLong("Revision", -1); view.putInt("PageSize", pageSize);
             view.putString("Message", message.isEmpty() ? "disk_offline" : message);
-        } else view = storage.view(currentFolder, page, pageSize, message);
+        } else view = searching
+                ? storage.searchView(searchRoot, searchRecursive, searchReady ? searchMatches : Set.of(), page, pageSize, message)
+                : storage.view(currentFolder, page, pageSize, message);
         page = view.getInt("Page");
         view.putBoolean("Available", storage != null); view.putLong("Session", session); view.putString("Volume", volume);
+        view.putBoolean("Searching", searching); view.putBoolean("SearchReady", searchReady);
+        view.putInt("SearchRoot", searchRoot); view.putBoolean("SearchRecursive", searchRecursive);
+        view.putLong("SearchRevision", storage == null ? -1 : storage.searchRevision());
+        view.putLong("QuerySeq", querySeq); view.putLong("ResultViewSeq", resultViewSeq);
+        if (!searching) view.putInt("SearchMatches", 0);
+        view.putInt("Located", located);
         ListTag volumes = new ListTag();
         CompoundTag local = new CompoundTag(); local.putString("Id", ""); local.putBoolean("Online", true); volumes.add(local);
         NasBlockEntity nas = nas(); boolean found = volume.isEmpty();
@@ -119,11 +149,22 @@ public final class StorageMenu extends AbstractContainerMenu {
     private void sync(boolean force) {
         if (!(player instanceof ServerPlayer serverPlayer) || blockEntity == null) return;
         refreshMount(); StorageAccess storage = storage(); NasBlockEntity nas = nas();
+        invalidateSearch(storage);
+        boolean catalogSent = syncCatalog(serverPlayer, storage);
         long revision = storage == null ? -1 : storage.revision(), nasRevision = nas == null ? -1 : nas.revision();
         String nasStamp = nas == null ? "" : nas.stamp(0);
-        if (!force && revision == sentRevision && nasRevision == sentNasRevision && session == sentSession && nasStamp.equals(sentNasStamp)) return;
+        if (!force && !catalogSent && revision == sentRevision && nasRevision == sentNasRevision && session == sentSession && nasStamp.equals(sentNasStamp)) return;
         CompoundTag view = snapshot();
-        if (force || !view.equals(sentView)) { StorageNetwork.snapshot(serverPlayer, containerId, view); sentView = view; }
+        if (force || catalogSent || !view.equals(sentView)) {
+            if (searching) {
+                view.putLong("ResultViewSeq", ++resultViewSeq);
+                Set<Integer> visible = new HashSet<>();
+                if (searchReady) for (Tag row : view.getList("Entries", Tag.TAG_COMPOUND))
+                    visible.add(((CompoundTag) row).getInt("Id"));
+                publishedSearchEntries = Set.copyOf(visible); publishedRevision = revision;
+            }
+            StorageNetwork.snapshot(serverPlayer, containerId, view); sentView = view;
+        }
         sentRevision = revision; sentNasRevision = nasRevision; sentSession = session; sentNasStamp = nasStamp;
         message = "";
     }
@@ -144,12 +185,16 @@ public final class StorageMenu extends AbstractContainerMenu {
     }
     public void handle(StorageNetwork.Request request) {
         if (blockEntity == null || request.menuId() != containerId || !stillValid(player)) return;
-        long tick = player.level().getGameTime();
-        if (tick != actionTick) { actionTick = tick; actionsThisTick = 0; }
-        if (++actionsThisTick > 10) return;
+        if (!allowAction()) return;
         refreshMount();
         if (request.session() != session) { message = "stale"; sync(true); return; }
         StorageAccess storage = storage();
+        if (searching) {
+            if (request.action() == StorageNetwork.Action.OPEN || request.action() == StorageNetwork.Action.SELECT_VOLUME)
+                exitSearch(true);
+            else { message = "search_active"; sync(true); return; }
+        }
+        located = -1;
         boolean navigation = request.action() == StorageNetwork.Action.OPEN || request.action() == StorageNetwork.Action.PAGE
                 || request.action() == StorageNetwork.Action.RESIZE || request.action() == StorageNetwork.Action.SELECT_VOLUME;
         if (!navigation && storage != null && storage.isLocked()) { message = "storage_locked"; sync(true); return; }
@@ -193,5 +238,125 @@ public final class StorageMenu extends AbstractContainerMenu {
         StorageInventory.Entry entry = storage.entry(id);
         if (entry == null || entry.folder() != currentFolder) throw new IllegalArgumentException("missing_item");
     }
-    @Override public void removed(Player player) { closed = true; super.removed(player); }
+
+    private boolean allowAction() {
+        long tick = player.level().getGameTime();
+        if (tick != actionTick) { actionTick = tick; actionsThisTick = 0; }
+        return ++actionsThisTick <= 10;
+    }
+
+    private void invalidateSearch(StorageAccess storage) {
+        if (searching && (storage == null || storage.isLocked() || storage.searchRevision() != catalogRevision)) {
+            searchReady = false; publishedSearchEntries = Set.of();
+        }
+    }
+
+    /** Only a search session receives the metadata; structural changes are coalesced over four ticks. */
+    private boolean syncCatalog(ServerPlayer target, StorageAccess storage) {
+        if (!searching || storage == null || storage.isLocked() || storage.searchRevision() == catalogRevision) return false;
+        long tick = player.level().getGameTime();
+        boolean reset = catalogRevision < 0;
+        if (!reset && tick - catalogSentTick < 4) return false;
+        List<CompoundTag> catalog = storage.searchCatalog(), changed = new ArrayList<>();
+        Map<Integer, CompoundTag> next = new LinkedHashMap<>();
+        for (CompoundTag entry : catalog) {
+            int id = entry.getInt("Id"); next.put(id, entry);
+            if (reset || !entry.equals(sentCatalog.get(id))) changed.add(entry);
+        }
+        int[] removed = sentCatalog.keySet().stream().filter(id -> !next.containsKey(id)).mapToInt(Integer::intValue).toArray();
+        List<CompoundTag> batches = SearchCatalogSupport.batches(changed, removed);
+        long nextRevision = storage.searchRevision();
+        for (int i = 0; i < batches.size(); i++)
+            StorageNetwork.searchCatalog(target, new StorageNetwork.SearchCatalog(containerId, session, nextRevision,
+                    i, reset && i == 0, i == batches.size() - 1, batches.get(i)));
+        sentCatalog.clear(); sentCatalog.putAll(next);
+        catalogRevision = nextRevision; catalogSentTick = tick;
+        return true;
+    }
+
+    private void exitSearch(boolean restore) {
+        if (searching && restore) { currentFolder = savedFolder; page = savedPage; pageSize = savedPageSize; }
+        searching = searchReady = false;
+        searchMatches = publishedSearchEntries = Set.of(); publishedRevision = -1;
+        sentCatalog.clear(); catalogRevision = -1; catalogSentTick = -1;
+    }
+
+    private void requireSearchSource(StorageAccess storage, StorageNetwork.SearchRequest request) {
+        if (!searchReady || request.querySeq() != querySeq || request.viewSeq() != resultViewSeq
+                || request.catalogRevision() != catalogRevision || request.catalogRevision() != storage.searchRevision()
+                || request.revision() != storage.revision() || request.revision() != publishedRevision)
+            throw new IllegalArgumentException("stale");
+        if (!publishedSearchEntries.contains(request.entryId()) || !searchMatches.contains(request.entryId())
+                || !storage.inSearchScope(request.entryId(), searchRoot, searchRecursive))
+            throw new IllegalArgumentException("missing_item");
+    }
+
+    public void handleSearch(StorageNetwork.SearchRequest request) {
+        if (blockEntity == null || request.menuId() != containerId || !stillValid(player) || !allowAction()) return;
+        refreshMount();
+        if (request.session() != session) { message = "stale"; sync(true); return; }
+        StorageAccess storage = storage(); invalidateSearch(storage); message = ""; located = -1;
+        try {
+            if (request.action() == StorageNetwork.SearchAction.EXIT) {
+                // Text edits advance the client sequence before its debounced APPLY reaches us.
+                if (searching && request.querySeq() < querySeq) throw new IllegalArgumentException("stale");
+                exitSearch(true);
+            } else {
+                if (storage == null) throw new IllegalArgumentException("disk_offline");
+                if (storage.isLocked()) throw new IllegalArgumentException("storage_locked");
+                switch (request.action()) {
+                    case START -> {
+                        if (request.querySeq() < querySeq) throw new IllegalArgumentException("stale");
+                        if (!searching) {
+                            savedFolder = currentFolder; savedPage = page; savedPageSize = pageSize; searchRoot = currentFolder;
+                        }
+                        searching = true; searchReady = false; searchRecursive = request.recursive();
+                        querySeq = request.querySeq(); page = 0; pageSize = searchPageSize(request.pageSize());
+                        searchMatches = publishedSearchEntries = Set.of(); sentCatalog.clear(); catalogRevision = -1;
+                    }
+                    case APPLY -> {
+                        if (!searching || request.querySeq() < querySeq || request.catalogRevision() != catalogRevision
+                                || catalogRevision != storage.searchRevision()) throw new IllegalArgumentException("stale");
+                        int[] requestedMatches = request.matches();
+                        if (requestedMatches.length > 4096)
+                            throw new IllegalArgumentException("missing_item");
+                        Set<Integer> matches = new LinkedHashSet<>();
+                        for (int id : requestedMatches) {
+                            if (!storage.inSearchScope(id, searchRoot, request.recursive()))
+                                throw new IllegalArgumentException("missing_item");
+                            matches.add(id);
+                        }
+                        querySeq = request.querySeq(); searchRecursive = request.recursive(); searchMatches = Set.copyOf(matches);
+                        page = 0; pageSize = searchPageSize(request.pageSize()); searchReady = true;
+                    }
+                    case PAGE, RESIZE -> {
+                        if (!searching || !searchReady || request.querySeq() != querySeq
+                                || request.catalogRevision() != catalogRevision) throw new IllegalArgumentException("stale");
+                        if (request.action() == StorageNetwork.SearchAction.PAGE) page = Math.max(0, Math.min(4096, request.page()));
+                        else { pageSize = searchPageSize(request.pageSize()); page = 0; }
+                    }
+                    case TAKE -> {
+                        if (!searching) throw new IllegalArgumentException("stale");
+                        requireSearchSource(storage, request);
+                        message = StorageTransfers.withdraw(storage, player.getInventory(), request.entryId(), Math.max(0, request.amount())) > 0
+                                ? "withdrawn" : "inventory_full";
+                    }
+                    case LOCATE -> {
+                        if (!searching) throw new IllegalArgumentException("stale");
+                        requireSearchSource(storage, request);
+                        StorageInventory.Entry entry = storage.entry(request.entryId());
+                        int normalSize = savedPageSize;
+                        int targetPage = storage.locatePage(entry.id(), normalSize);
+                        exitSearch(false); currentFolder = entry.folder(); page = targetPage; pageSize = normalSize; located = entry.id();
+                    }
+                    default -> { }
+                }
+            }
+        } catch (IllegalArgumentException failure) { message = failure.getMessage(); }
+        sync(true); super.broadcastChanges();
+    }
+
+    private static int searchPageSize(int requested) { return Math.max(1, Math.min(StorageInventory.MAX_PAGE_SIZE, requested)); }
+
+    @Override public void removed(Player player) { closed = true; exitSearch(false); super.removed(player); }
 }

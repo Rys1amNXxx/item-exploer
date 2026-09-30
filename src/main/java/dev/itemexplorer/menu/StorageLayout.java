@@ -19,6 +19,10 @@ public record StorageLayout(int width, int height) {
     public int rows() { return browserHeight() / 30; }
     public int cellWidth() { return browserWidth() / columns(); }
     public int pageSize() { return columns() * rows(); }
+    public int searchRows() { return browserHeight() / 30; }
+    public int searchWidth() { return width - 164; }
+    public int searchScopeX() { return width - 152; }
+    public int searchExitX() { return width - 102; }
     public int treeRows() { return browserHeight() / 12; }
     public int modalX() { return (width - 240) / 2; }
     public int modalY() { return (height - 80) / 2; }

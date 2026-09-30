@@ -6,6 +6,7 @@ import dev.itemexplorer.menu.StorageMenu;
 import dev.itemexplorer.network.StorageNetwork;
 import dev.itemexplorer.network.StorageNetwork.Action;
 import dev.itemexplorer.storage.StorageInventory;
+import dev.itemexplorer.storage.StorageSearch;
 import net.minecraft.Util;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
@@ -14,6 +15,7 @@ import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.Tag;
+import net.minecraft.locale.Language;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.ItemStack;
@@ -23,6 +25,8 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Set;
 
 public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
@@ -30,7 +34,8 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
     private static final Set<String> QUIET_MESSAGES = Set.of("", "created", "renamed", "deleted", "moved",
             "deposited", "withdrawn", "no_change");
     private record Folder(int id, int parent, String name, int depth) {}
-    private record Entry(int id, ItemStack stack, long count) {}
+    private record Entry(int id, int folder, ItemStack stack, long count) {}
+    private record CatalogEntry(int id, int folder, String item, String nameJson, String name) {}
     private record Volume(int id, String key, String name) {}
     private List<Volume> volumes = List.of();
     private boolean awaitingVolume;
@@ -38,14 +43,24 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
     private record Tile(Folder folder, Entry entry) {}
     private record Crumb(int id, String name, String display, int x, int width) {}
     private StorageLayout layout;
-    private EditBox quantity, folderName;
+    private EditBox quantity, folderName, searchQuery;
     private Button create, rename, delete, up, previous, next, withdraw, move, all, deposit, modalOk, modalCancel;
+    private Button searchOpen, searchScope, searchExit;
+    private boolean searching, searchRecursive, catalogLoading, applyingSearch, awaitingSearchExit;
+    private CompoundTag searchTransitionView;
+    private long searchSession, querySeq, catalogRevision = -1, pendingCatalogRevision = -1, searchChangedAt;
+    private long appliedQuerySeq = -1;
+    private int expectedCatalogBatch, lastLocated = -1, doubleClickEntry = -1;
+    private long doubleClickAt, searchRequestedAt;
+    private Map<Integer, CatalogEntry> catalog = new LinkedHashMap<>(), pendingCatalog;
+    private Language catalogLanguage;
     private int selected = -1, folderScroll, lastFolder = -1, dragCandidate = -1;
     private double pressX, pressY;
     private boolean dragging, choosingTarget, modal, renaming;
     private final Set<Integer> collapsed = new HashSet<>();
     private final Set<Integer> parents = new HashSet<>();
     private CompoundTag cachedView;
+    private boolean cachedSearching, cachedSearchReady;
     private List<Folder> folders = List.of(), tree = List.of();
     private List<Entry> entries = List.of();
     private List<Tile> tiles = List.of();
@@ -69,6 +84,7 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
     @Override
     protected void init() {
         String savedQuantity = quantity == null ? "64" : quantity.getValue();
+        String savedSearch = searchQuery == null ? "" : searchQuery.getValue();
         layout = StorageLayout.fit(width, height);
         imageWidth = layout.width(); imageHeight = layout.height();
         super.init();
@@ -82,6 +98,20 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
             Folder f = folder(current());
             if (f != null && f.parent >= 0) activateFolder(f.parent);
         });
+        searchOpen = button(198, 23, 38, "search", b -> openSearch());
+        searchOpen.setTooltip(Tooltip.create(label("search_hint")));
+        searchQuery = addRenderableWidget(new EditBox(font, leftPos + 8, topPos + 24,
+                layout.searchWidth(), 16, label("search_query")));
+        searchQuery.setMaxLength(StorageSearch.MAX_QUERY);
+        searchQuery.setHint(label("search_query"));
+        searchQuery.setValue(savedSearch);
+        searchQuery.setResponder(s -> invalidateSearch());
+        searchScope = button(layout.searchScopeX(), 23, 46, "search_drive", b -> {
+            searchRecursive = !searchRecursive;
+            invalidateSearch();
+        });
+        searchExit = button(layout.searchExitX(), 23, 18, "search_close", b -> closeSearch());
+        searchExit.setTooltip(Tooltip.create(label("search_exit_hint")));
         previous = button(imageWidth - 80, 23, 18, "previous", b -> changePage(-1));
         next = button(imageWidth - 26, 23, 18, "next", b -> changePage(1));
         int x = layout.controlsX(), y = layout.controlsY();
@@ -89,8 +119,10 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
         quantity.setMaxLength(19);
         quantity.setFilter(s -> s.matches("[0-9]{0,19}"));
         quantity.setValue(savedQuantity);
-        withdraw = button(x + 72, y, 44, "withdraw", b -> send(Action.WITHDRAW, selected, 0, amount(), ""));
-        move = button(x + 120, y, 64, "move", b -> choosingTarget = !choosingTarget);
+        withdraw = button(x + 72, y, 44, "withdraw", b -> takeSelected(amount()));
+        move = button(x + 120, y, 64, "move", b -> {
+            if (searching) locateSelected(); else choosingTarget = !choosingTarget;
+        });
         all = button(x + 188, y, 44, "all", b -> {
             Entry e = selectedEntry(); if (e != null) quantity.setValue(Long.toString(e.count));
         });
@@ -108,17 +140,172 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
         closeModal();
         cachedView = null;
         requestedPageSize = -1;
+        updateSearchWidgets();
+        if (searching) { setFocused(searchQuery); searchQuery.setFocused(true); }
     }
 
     private void send(Action action, int id, int target, long amount, String text) {
         if (!menu.view().contains("Revision") || awaitingVolume) return;
+        if (searching && (action == Action.MOVE || action == Action.WITHDRAW
+                || action == Action.DEPOSIT_CURSOR || action == Action.DEPOSIT_SLOT)) return;
         if (action == Action.MOVE && target < 0) { error = "cross_disk"; errorUntil = Util.getMillis() + 4500; return; }
         StorageNetwork.request(new StorageNetwork.Request(menu.containerId, menu.view().getLong("Revision"), action, id, target, amount, text, menu.view().getLong("Session")));
         if (action == Action.SELECT_VOLUME) { awaitingVolume = true; volumeRequestedAt = Util.getMillis(); }
         errorUntil = 0;
     }
 
+    private void openSearch() {
+        if (modal || awaitingVolume || awaitingSearchExit || !menu.view().getBoolean("Available") || menu.view().getBoolean("Locked")) return;
+        if (searching) { setFocused(searchQuery); searchQuery.setFocused(true); return; }
+        searching = true; awaitingSearchExit = false; searchRecursive = false; searchSession = menu.view().getLong("Session");
+        querySeq = Math.max(querySeq, menu.view().getLong("QuerySeq")) + 1;
+        catalog.clear(); pendingCatalog = null; catalogRevision = pendingCatalogRevision = -1;
+        catalogLoading = true; appliedQuerySeq = -1; lastLocated = -1;
+        selected = -1; choosingTarget = dragging = false; dragCandidate = -1;
+        searchQuery.setValue(""); searchChangedAt = Util.getMillis();
+        updateSearchWidgets(); setFocused(searchQuery); searchQuery.setFocused(true); quantity.setFocused(false);
+        sendSearch(StorageNetwork.SearchAction.START, 0, layout.searchRows(), 0, 0, new int[0]);
+        cachedView = null;
+    }
+
+    private void closeSearch() {
+        if (!searching || awaitingSearchExit) return;
+        sendSearch(StorageNetwork.SearchAction.EXIT, 0, layout.searchRows(), 0, 0, new int[0]);
+        awaitSearchExit();
+    }
+
+    private void awaitSearchExit() {
+        awaitingSearchExit = true; searchTransitionView = menu.view();
+        searchRequestedAt = Util.getMillis();
+        searchQuery.setFocused(false); setFocused(null);
+    }
+
+    private void resetSearch() {
+        searching = false; catalogLoading = applyingSearch = awaitingSearchExit = false;
+        catalog.clear(); pendingCatalog = null; catalogRevision = pendingCatalogRevision = -1;
+        selected = -1; choosingTarget = dragging = false; dragCandidate = -1;
+        appliedQuerySeq = -1; doubleClickEntry = -1;
+        if (searchQuery != null) { searchQuery.setFocused(false); updateSearchWidgets(); }
+        setFocused(null);
+    }
+
+    private void invalidateSearch() {
+        if (!searching) return;
+        querySeq++; appliedQuerySeq = -1; applyingSearch = false; searchChangedAt = Util.getMillis();
+        selected = -1; doubleClickEntry = -1; cachedView = null;
+    }
+
+    private void updateSearchWidgets() {
+        create.visible = rename.visible = delete.visible = up.visible = searchOpen.visible = !searching;
+        searchQuery.visible = searchScope.visible = searchExit.visible = searching;
+        searchScope.setMessage(label(searchRecursive ? "search_tree" : "search_drive"));
+        searchScope.setTooltip(Tooltip.create(label(searchRecursive ? "search_tree_hint" : "search_drive_hint")));
+    }
+
+    private boolean searchReady() {
+        return searching && !awaitingSearchExit && !catalogLoading && appliedQuerySeq == querySeq
+                && menu.view().getBoolean("Searching") && menu.view().getBoolean("SearchReady")
+                && menu.view().getLong("Session") == searchSession
+                && menu.view().getLong("QuerySeq") == querySeq
+                && menu.view().getLong("SearchRevision") == catalogRevision;
+    }
+
+    private void sendSearch(StorageNetwork.SearchAction action, int page, int pageSize, int entryId, long amount, int[] matches) {
+        if (!menu.view().contains("Session") || awaitingVolume) return;
+        StorageNetwork.request(new StorageNetwork.SearchRequest(menu.containerId, searchSession, querySeq,
+                Math.max(0, catalogRevision), menu.view().getLong("ResultViewSeq"), action,
+                searchRecursive, page, pageSize, entryId, amount, menu.view().getLong("Revision"), matches));
+        searchRequestedAt = Util.getMillis();
+        errorUntil = 0;
+    }
+
+    private void applySearch(boolean immediate) {
+        if (!searching) return;
+        refreshView();
+        if (!searching || awaitingSearchExit || catalogLoading || catalogRevision < 0 || appliedQuerySeq == querySeq
+                || !menu.view().getBoolean("Searching") || menu.view().getLong("SearchRevision") != catalogRevision
+                || menu.view().getLong("Session") != searchSession
+                || !immediate && Util.getMillis() - searchChangedAt < 200) return;
+        String query = searchQuery.getValue();
+        int[] matches = catalog.values().stream().filter(this::inSearchScope)
+                .filter(e -> StorageSearch.matches(query, e.name, e.item))
+                .mapToInt(CatalogEntry::id).limit(StorageSearch.MAX_MATCHES).toArray();
+        appliedQuerySeq = querySeq; applyingSearch = true;
+        sendSearch(StorageNetwork.SearchAction.APPLY, 0, layout.searchRows(), 0, 0, matches);
+    }
+
+    private boolean inSearchScope(CatalogEntry entry) {
+        if (!searchRecursive) return true;
+        int root = menu.view().getInt("SearchRoot"), id = entry.folder;
+        for (int i = 0; i <= StorageInventory.MAX_DEPTH; i++) {
+            if (id == root) return true;
+            Folder folder = folder(id);
+            if (folder == null || folder.parent < 0) return false;
+            id = folder.parent;
+        }
+        return false;
+    }
+
+    /** The catalog contains only immutable matching metadata; stacks and counts remain paged. */
+    public void acceptSearchCatalog(StorageNetwork.SearchCatalog packet) {
+        if (!searching || packet.menuId() != menu.containerId || packet.session() != searchSession
+                || packet.session() != menu.view().getLong("Session") || packet.catalogRevision() < catalogRevision) return;
+        if (packet.catalogRevision() != pendingCatalogRevision) {
+            if (packet.batch() != 0 || packet.catalogRevision() <= catalogRevision
+                    || pendingCatalogRevision > packet.catalogRevision()) return;
+            pendingCatalogRevision = packet.catalogRevision(); expectedCatalogBatch = 0;
+            pendingCatalog = packet.reset() ? new LinkedHashMap<>() : new LinkedHashMap<>(catalog);
+            catalogLoading = true; invalidateSearch();
+        }
+        if (pendingCatalog == null || packet.batch() != expectedCatalogBatch) return;
+        for (int id : packet.data().getIntArray("Removed")) pendingCatalog.remove(id);
+        for (Tag tag : packet.data().getList("Entries", Tag.TAG_COMPOUND)) {
+            CompoundTag entry = (CompoundTag) tag; int id = entry.getInt("Id");
+            if (id < 0) continue;
+            String item = entry.getString("Item"), json = entry.getString("Name");
+            pendingCatalog.put(id, new CatalogEntry(id, entry.getInt("Folder"), item, json, ""));
+        }
+        expectedCatalogBatch++;
+        if (pendingCatalog.size() > StorageSearch.MAX_MATCHES) return;
+        if (packet.complete()) {
+            catalog = pendingCatalog; pendingCatalog = null; catalogRevision = packet.catalogRevision();
+            catalogLoading = false; reparseCatalog();
+            searchChangedAt = Util.getMillis() - 200;
+        }
+    }
+
+    private void reparseCatalog() {
+        catalogLanguage = Language.getInstance();
+        catalog.replaceAll((id, e) -> new CatalogEntry(id, e.folder, e.item, e.nameJson, StorageSearch.name(e.nameJson)));
+    }
+
+    private void takeSelected(long amount) {
+        if (searching) {
+            if (searchReady()) sendSearch(StorageNetwork.SearchAction.TAKE, menu.view().getInt("Page"),
+                    layout.searchRows(), selected, amount, new int[0]);
+        } else send(Action.WITHDRAW, selected, 0, amount, "");
+    }
+
+    private void locateSelected() {
+        if (!searchReady() || selected < 0) return;
+        sendSearch(StorageNetwork.SearchAction.LOCATE, menu.view().getInt("Page"), layout.searchRows(), selected, 0, new int[0]);
+        awaitSearchExit();
+    }
+
+    private String entryPath(Entry entry) {
+        List<String> names = new ArrayList<>(); Folder cursor = folder(entry.folder);
+        for (int i = 0; cursor != null && i <= StorageInventory.MAX_DEPTH; i++) {
+            names.add(cursor.name); cursor = folder(cursor.parent);
+        }
+        Collections.reverse(names);
+        return String.join(" / ", names);
+    }
+
     private void activateFolder(int id) {
+        if (searching) {
+            if (awaitingSearchExit) return;
+            awaitSearchExit();
+        }
         if (choosingTarget && selected >= 0) {
             send(Action.MOVE, selected, id, amount(), "");
             choosingTarget = false;
@@ -138,9 +325,11 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
     }
 
     private void changePage(int delta) {
+        if (searching && !searchReady()) return;
         int page = menu.view().getInt("Page") + delta;
         if (page < 0 || page >= menu.view().getInt("Pages")) return;
-        send(Action.PAGE, 0, 0, page, "");
+        if (searching) sendSearch(StorageNetwork.SearchAction.PAGE, page, layout.searchRows(), 0, 0, new int[0]);
+        else send(Action.PAGE, 0, 0, page, "");
         selected = -1; choosingTarget = false; dragCandidate = -1; dragging = false;
     }
 
@@ -148,14 +337,20 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
     private Entry selectedEntry() { return entries.stream().filter(e -> e.id == selected).findFirst().orElse(null); }
 
     private void refreshView() {
-        if (cachedView == menu.view()) return;
-        boolean sessionChanged = cachedView == null || cachedView.getLong("Session") != menu.view().getLong("Session");
+        if (cachedView == menu.view() && cachedSearching == searching && cachedSearchReady == searchReady()) return;
+        boolean sessionChanged = cachedView != null && cachedView.getLong("Session") != menu.view().getLong("Session");
+        if (searching && menu.view().getLong("Session") != searchSession) resetSearch();
+        if (awaitingSearchExit && menu.view() != searchTransitionView) {
+            if (!menu.view().getBoolean("Searching")) resetSearch();
+            else awaitingSearchExit = false;
+        }
         if (sessionChanged) {
             selected = -1; choosingTarget = dragging = false; dragCandidate = -1; collapsed.clear();
             if (modal) closeModal();
         }
         awaitingVolume = false;
         cachedView = menu.view();
+        cachedSearching = searching; cachedSearchReady = searchReady();
         List<Volume> decodedVolumes = new ArrayList<>();
         String rootName = label("root").getString();
         for (Tag tag : cachedView.getList("Volumes", Tag.TAG_COMPOUND)) {
@@ -196,16 +391,26 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
         }
         List<Entry> decoded = new ArrayList<>();
         List<Tile> page = new ArrayList<>();
-        for (int id : cachedView.getIntArray("PageFolders")) {
+        for (int id : searching || cachedView.getBoolean("Searching") ? new int[0] : cachedView.getIntArray("PageFolders")) {
             Folder f = folder(id);
             if (f != null) page.add(new Tile(f, null));
         }
         for (Tag tag : cachedView.getList("Entries", Tag.TAG_COMPOUND)) {
+            if (searching ? !searchReady() : cachedView.getBoolean("Searching")) break;
             CompoundTag e = (CompoundTag) tag;
-            Entry entry = new Entry(e.getInt("Id"), ItemStack.of(e.getCompound("Stack")), e.getLong("Count"));
+            Entry entry = new Entry(e.getInt("Id"), e.contains("Folder") ? e.getInt("Folder") : current(),
+                    ItemStack.of(e.getCompound("Stack")), e.getLong("Count"));
             decoded.add(entry); page.add(new Tile(null, entry));
         }
         entries = decoded; tiles = page;
+        if (doubleClickEntry >= 0 && entries.stream().noneMatch(e -> e.id == doubleClickEntry)) doubleClickEntry = -1;
+        if (!searching && !cachedView.getBoolean("Searching") && cachedView.contains("Located")) {
+            int located = cachedView.getInt("Located");
+            if (located >= 0 && located != lastLocated && entries.stream().anyMatch(e -> e.id == located)) {
+                selected = located; lastLocated = located;
+            }
+        }
+        if (searchReady()) applyingSearch = false;
         buildCrumbs();
         String message = cachedView.getString("Message");
         if (!QUIET_MESSAGES.contains(message)) { error = message; errorUntil = Util.getMillis() + 4500; }
@@ -276,6 +481,11 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
     }
 
     private Tile tileAt(double x, double y) {
+        if (searching) {
+            if (!inside(x, y, layout.browserX(), layout.browserY(), layout.browserWidth(), layout.searchRows() * 30)) return null;
+            int index = ((int) y - topPos - layout.browserY()) / 30;
+            return index < tiles.size() ? tiles.get(index) : null;
+        }
         if (!inside(x, y, layout.browserX(), layout.browserY(), layout.columns() * layout.cellWidth(), layout.rows() * 30)) return null;
         int col = ((int) x - leftPos - layout.browserX()) / layout.cellWidth();
         int row = ((int) y - topPos - layout.browserY()) / 30;
@@ -284,6 +494,7 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
     }
 
     private Crumb crumbAt(double x, double y) {
+        if (searching) return null;
         return crumbs.stream().filter(c -> c.id >= 0 && inside(x, y, c.x, 44, c.width, 12)).findFirst().orElse(null);
     }
 
@@ -318,7 +529,18 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
     }
 
     @Override
-    public void containerTick() { super.containerTick(); quantity.tick(); folderName.tick(); }
+    public void containerTick() {
+        super.containerTick(); quantity.tick(); folderName.tick(); searchQuery.tick();
+        if (searching && !catalogLoading && catalogLanguage != Language.getInstance()) {
+            reparseCatalog(); invalidateSearch();
+        }
+        if (searching && Util.getMillis() - searchRequestedAt > 3000) {
+            if (awaitingSearchExit) {
+                awaitingSearchExit = false; error = "stale"; errorUntil = Util.getMillis() + 4500;
+            } else if (applyingSearch) { applyingSearch = false; appliedQuerySeq = -1; }
+        }
+        applySearch(false);
+    }
 
     @Override
     public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
@@ -327,27 +549,37 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
         if (awaitingVolume && Util.getMillis() - volumeRequestedAt > 3000) {
             awaitingVolume = false; error = "stale"; errorUntil = Util.getMillis() + 4500;
         }
-        if (menu.view().contains("Revision") && menu.view().getInt("PageSize") != layout.pageSize()
-                && (requestedPageSize != layout.pageSize() || Util.getMillis() - resizeRequestedAt > 1000)) {
-            requestedPageSize = layout.pageSize(); resizeRequestedAt = Util.getMillis();
-            send(Action.RESIZE, 0, 0, layout.pageSize(), "");
+        int desiredPageSize = searching ? layout.searchRows() : layout.pageSize();
+        if (menu.view().contains("Revision") && (searching ? searchReady() : !menu.view().getBoolean("Searching"))
+                && menu.view().getInt("PageSize") != desiredPageSize
+                && (requestedPageSize != desiredPageSize || Util.getMillis() - resizeRequestedAt > 1000)) {
+            requestedPageSize = desiredPageSize; resizeRequestedAt = Util.getMillis();
+            if (searching) sendSearch(StorageNetwork.SearchAction.RESIZE, menu.view().getInt("Page"), desiredPageSize, 0, 0, new int[0]);
+            else send(Action.RESIZE, 0, 0, desiredPageSize, "");
         }
         if (selectedEntry() == null) { selected = -1; choosingTarget = false; }
-        boolean writable = menu.view().getBoolean("Available") && !menu.view().getBoolean("Locked") && !awaitingVolume;
-        create.active = writable && !modal;
-        rename.active = writable && (current() != 0 || !menu.view().getString("Volume").isEmpty()) && !modal;
-        delete.active = writable && current() != 0 && !modal;
+        boolean writable = menu.view().getBoolean("Available") && !menu.view().getBoolean("Locked") && !awaitingVolume
+                && !awaitingSearchExit && (searching ? searchReady() : !menu.view().getBoolean("Searching"));
+        updateSearchWidgets();
+        create.active = writable && !modal && !searching;
+        rename.active = writable && (current() != 0 || !menu.view().getString("Volume").isEmpty()) && !modal && !searching;
+        delete.active = writable && current() != 0 && !modal && !searching;
+        searchOpen.active = writable && !modal;
+        searchScope.active = searchExit.active = !awaitingSearchExit && !modal;
         up.active = current() != 0 && !modal;
-        previous.active = menu.view().getInt("Page") > 0 && !modal;
-        next.active = menu.view().getInt("Page") + 1 < menu.view().getInt("Pages") && !modal;
-        withdraw.active = move.active = writable && selected >= 0 && amount() > 0 && !modal;
+        previous.active = menu.view().getInt("Page") > 0 && !modal && (!searching || searchReady());
+        next.active = menu.view().getInt("Page") + 1 < menu.view().getInt("Pages") && !modal && (!searching || searchReady());
+        withdraw.active = writable && selected >= 0 && amount() > 0 && !modal;
+        move.active = writable && selected >= 0 && (searching || amount() > 0) && !modal;
         all.active = writable && selected >= 0 && !modal;
-        deposit.active = writable && !menu.getCarried().isEmpty() && !modal;
-        move.setMessage(label(choosingTarget ? "cancel_move" : "move"));
-        if (moveTooltipTarget != choosingTarget) {
+        deposit.active = writable && !menu.getCarried().isEmpty() && !modal && !searching;
+        deposit.setTooltip(Tooltip.create(label(searching ? "search_deposit_hint" : "deposit_hint")));
+        move.setMessage(label(searching ? "locate" : choosingTarget ? "cancel_move" : "move"));
+        if (searching) move.setTooltip(Tooltip.create(label("locate_hint")));
+        if (!searching && (moveTooltipTarget != choosingTarget || moveTooltipTarget)) {
             moveTooltipTarget = choosingTarget;
             move.setTooltip(Tooltip.create(label(choosingTarget ? "choose_target" : "move_hint")));
-        }
+        } else if (!searching) move.setTooltip(Tooltip.create(label(choosingTarget ? "choose_target" : "move_hint")));
         renderBackground(g);
         super.render(g, mouseX, mouseY, partialTick);
         if (modal) {
@@ -371,6 +603,10 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
                     if (tile.entry != null) {
                         var lines = new ArrayList<>(getTooltipFromItem(minecraft, tile.entry.stack));
                         lines.add(Component.translatable("gui.itemexplorer.exact_count", tile.entry.count));
+                        if (searching) {
+                            lines.add(Component.translatable("gui.itemexplorer.search_source", entryPath(tile.entry)));
+                            lines.add(label("search_result_hint"));
+                        }
                         g.renderTooltip(font, lines, java.util.Optional.empty(), mouseX, mouseY);
                     }
                     else g.renderTooltip(font, Component.literal(tile.folder.name), mouseX, mouseY);
@@ -382,6 +618,8 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
                 if (inside(mouseX, mouseY, imageWidth - 120, 5, 110, 15) && menu.view().getBoolean("Available"))
                     g.renderTooltip(font, Component.translatable("gui.itemexplorer.exact_capacity", menu.view().getLong("Total"), menu.view().getLong("Capacity")), mouseX, mouseY);
                 if (quantity.isMouseOver(mouseX, mouseY)) g.renderTooltip(font, Component.literal(quantity.getValue()), mouseX, mouseY);
+                if (searching && searchQuery.isMouseOver(mouseX, mouseY))
+                    g.renderTooltip(font, label("search_matching_hint"), mouseX, mouseY);
             }
         }
     }
@@ -431,12 +669,19 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
         text(g, Component.literal(capacity), imageWidth - 10 - font.width(capacity), 9, 110, MUTED);
         String page = (menu.view().getInt("Page") + 1) + "/" + Math.max(1, menu.view().getInt("Pages"));
         text(g, Component.literal(page), imageWidth - 44 - font.width(page) / 2, 28, 40, TEXT);
-        Crumb hoveredCrumb = crumbAt(mouseX, mouseY);
-        for (int i = 0; i < crumbs.size(); i++) {
-            Crumb crumb = crumbs.get(i);
-            text(g, Component.literal(crumb.display), crumb.x, 46, crumb.width, TEXT);
-            if (hoveredCrumb == crumb && crumb.id != current()) g.hLine(leftPos + crumb.x, leftPos + crumb.x + crumb.width - 1, topPos + 55, TEXT);
-            if (i < crumbs.size() - 1) text(g, Component.literal("/"), crumb.x + crumb.width + 4, 46, 8, MUTED);
+        if (searching) {
+            Component status = searchReady() ? Component.translatable("gui.itemexplorer.search_summary",
+                    label(searchRecursive ? "search_tree" : "search_drive"), menu.view().getInt("SearchMatches"))
+                    : label("search_loading");
+            text(g, status, 8, 46, imageWidth - 16, TEXT);
+        } else {
+            Crumb hoveredCrumb = crumbAt(mouseX, mouseY);
+            for (int i = 0; i < crumbs.size(); i++) {
+                Crumb crumb = crumbs.get(i);
+                text(g, Component.literal(crumb.display), crumb.x, 46, crumb.width, TEXT);
+                if (hoveredCrumb == crumb && crumb.id != current()) g.hLine(leftPos + crumb.x, leftPos + crumb.x + crumb.width - 1, topPos + 55, TEXT);
+                if (i < crumbs.size() - 1) text(g, Component.literal("/"), crumb.x + crumb.width + 4, 46, 8, MUTED);
+            }
         }
         recess(g, 8, layout.browserY(), 96, layout.browserHeight());
         recess(g, layout.browserX(), layout.browserY(), layout.browserWidth(), layout.browserHeight());
@@ -458,7 +703,20 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
             g.fill(leftPos + 102, topPos + y, leftPos + 104, topPos + y + thumb, 0xffdddddd);
         }
         Tile hoveredTile = tileAt(mouseX, mouseY);
-        for (int i = 0; i < tiles.size() && i < layout.pageSize(); i++) {
+        if (searching) for (int i = 0; i < entries.size() && i < layout.searchRows(); i++) {
+            Entry entry = entries.get(i); int x = layout.browserX(), y = layout.browserY() + i * 30;
+            int w = layout.browserWidth() - 2;
+            boolean active = entry.id == selected;
+            g.fill(leftPos + x + 1, topPos + y + 1, leftPos + x + w, topPos + y + 29,
+                    active ? 0xffdadada : hoveredTile != null && hoveredTile.entry == entry ? 0xffc1c1c1 : 0xffaaaaaa);
+            if (active) g.renderOutline(leftPos + x, topPos + y, w + 1, 30, 0xffffffff);
+            g.renderItem(entry.stack, leftPos + x + 4, topPos + y + 2);
+            String count = "×" + compact(entry.count); int countWidth = Math.min(64, font.width(count));
+            text(g, entry.stack.getHoverName(), x + 24, y + 4, w - 30 - countWidth, TEXT);
+            text(g, Component.literal(count), x + w - countWidth - 4, y + 4, countWidth, TEXT);
+            text(g, Component.literal(entryPath(entry)), x + 24, y + 18, w - 28, MUTED);
+        }
+        else for (int i = 0; i < tiles.size() && i < layout.pageSize(); i++) {
             Tile tile = tiles.get(i);
             int x = layout.browserX() + (i % layout.columns()) * layout.cellWidth();
             int y = layout.browserY() + (i / layout.columns()) * 30;
@@ -478,7 +736,8 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
                 text(g, e.stack.getHoverName(), x + 4, y + 20, w - 6, TEXT);
             }
         }
-        if (tiles.isEmpty()) text(g, label("empty"), layout.browserX() + 12, layout.browserY() + 12, layout.browserWidth() - 24, TEXT);
+        if (tiles.isEmpty()) text(g, label(searching ? searchReady() ? "search_empty" : "search_loading" : "empty"),
+                layout.browserX() + 12, layout.browserY() + 12, layout.browserWidth() - 24, TEXT);
         text(g, label("quantity"), layout.controlsX(), layout.controlsY() + 5, 26, TEXT);
         for (var slot : menu.slots) recess(g, slot.x, slot.y, 16, 16);
     }
@@ -498,7 +757,7 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
 
     @Override
     public boolean mouseClicked(double x, double y, int button) {
-        if (awaitingVolume) return true;
+        if (awaitingVolume || awaitingSearchExit) return true;
         if (modal) {
             if (modalOk.mouseClicked(x, y, button) || modalCancel.mouseClicked(x, y, button)) return true;
             folderName.mouseClicked(x, y, button); setFocused(folderName); return true;
@@ -515,7 +774,7 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
         Crumb crumb = crumbAt(x, y);
         if (crumb != null && button == 0) { activateFolder(crumb.id); return true; }
         if (inside(x, y, layout.browserX(), layout.browserY(), layout.browserWidth(), layout.browserHeight()) && !menu.getCarried().isEmpty()) {
-            if (button == 0 || button == 1) send(Action.DEPOSIT_CURSOR, 0, 0, 0, "");
+            if (!searching && !menu.view().getBoolean("Searching") && (button == 0 || button == 1)) send(Action.DEPOSIT_CURSOR, 0, 0, 0, "");
             return true;
         }
         Tile tile = tileAt(x, y);
@@ -524,14 +783,22 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
                 if (button == 0) activateFolder(tile.folder.id);
             } else if (button == 0 || button == 1) {
                 selected = tile.entry.id; quantity.setFocused(false); setFocused(null);
-                if (button == 1 || hasShiftDown()) send(Action.WITHDRAW, selected, 0, button == 1 ? 1 : 64, "");
-                else { dragCandidate = selected; pressX = x; pressY = y; }
+                searchQuery.setFocused(false);
+                if (button == 1 || hasShiftDown()) { doubleClickEntry = -1; takeSelected(button == 1 ? 1 : 64); }
+                else if (searching) {
+                    long now = Util.getMillis();
+                    if (doubleClickEntry == selected && now - doubleClickAt < 250) { doubleClickEntry = -1; locateSelected(); }
+                    else { doubleClickEntry = selected; doubleClickAt = now; }
+                } else { dragCandidate = selected; pressX = x; pressY = y; }
             }
             return true;
         }
         boolean handled = super.mouseClicked(x, y, button);
         // The parent focuses the clicked button after its callback opens the modal.
         if (modal) { setFocused(folderName); folderName.setFocused(true); }
+        else if (searching && (getFocused() == searchOpen || getFocused() == searchScope)) {
+            setFocused(searchQuery); searchQuery.setFocused(true); quantity.setFocused(false);
+        }
         return handled;
     }
 
@@ -545,7 +812,7 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
     @Override protected void slotClicked(net.minecraft.world.inventory.Slot slot, int slotId, int button, net.minecraft.world.inventory.ClickType type) {
         if (awaitingVolume) return;
         if (type == net.minecraft.world.inventory.ClickType.QUICK_MOVE && slot != null) {
-            send(Action.DEPOSIT_SLOT, slotId, 0, 0, "");
+            if (!searching && !menu.view().getBoolean("Searching")) send(Action.DEPOSIT_SLOT, slotId, 0, 0, "");
         } else super.slotClicked(slot, slotId, button, type);
     }
 
@@ -588,6 +855,13 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
             if (key == GLFW.GLFW_KEY_ESCAPE) closeModal();
             else if (key == GLFW.GLFW_KEY_ENTER || key == GLFW.GLFW_KEY_KP_ENTER) submitModal();
             else folderName.keyPressed(key, scanCode, modifiers);
+            return true;
+        }
+        if (key == GLFW.GLFW_KEY_F && hasControlDown()) { openSearch(); return true; }
+        if (searching && key == GLFW.GLFW_KEY_ESCAPE) { closeSearch(); return true; }
+        if (searching && searchQuery.isFocused()) {
+            if (key == GLFW.GLFW_KEY_ENTER || key == GLFW.GLFW_KEY_KP_ENTER) applySearch(true);
+            else if (!awaitingSearchExit) searchQuery.keyPressed(key, scanCode, modifiers);
             return true;
         }
         if (quantity.isFocused() && key != GLFW.GLFW_KEY_ESCAPE) { quantity.keyPressed(key, scanCode, modifiers); return true; }

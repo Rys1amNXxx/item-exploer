@@ -6,6 +6,8 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.NbtIo;
 import net.minecraft.nbt.Tag;
+import net.minecraft.network.chat.Component;
+import net.minecraftforge.registries.ForgeRegistries;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.ItemStack;
 
@@ -15,6 +17,7 @@ import java.io.IOException;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /** Server-owned inventory. Counts are independent of vanilla stack limits. */
 public final class StorageInventory implements StorageAccess {
@@ -39,6 +42,9 @@ public final class StorageInventory implements StorageAccess {
     private int nextFolder = 1;
     private int nextEntry = 1;
     private long revision;
+    private long searchRevision;
+    private long cachedSearchRevision = -1;
+    private final Map<Integer, CompoundTag> searchMetadata = new LinkedHashMap<>();
     private long transferRevision;
     private Tag protectedData;
     private String loadProblem = "";
@@ -54,6 +60,8 @@ public final class StorageInventory implements StorageAccess {
     }
 
     public long revision() { return revision; }
+    /** Names, membership and paths only: count-only logistics must not resend the catalog. */
+    public long searchRevision() { return searchRevision; }
     /** Transient activity counter: successful item transfers only, never browsing or simulation. */
     public long transferRevision() { return transferRevision; }
     public boolean isLocked() { return protectedData != null; }
@@ -115,6 +123,7 @@ public final class StorageInventory implements StorageAccess {
         String checked = checkedName(parent, -1, name);
         int id = nextFolder++;
         folders.put(id, new Folder(id, parent, checked));
+        searchRevision++;
         touch();
         return id;
     }
@@ -125,6 +134,7 @@ public final class StorageInventory implements StorageAccess {
         if (id == 0) throw new IllegalArgumentException("root_folder");
         Folder folder = folders.get(id);
         folders.put(id, new Folder(id, folder.parent, checkedName(folder.parent, id, name)));
+        searchRevision++;
         touch();
     }
 
@@ -135,6 +145,7 @@ public final class StorageInventory implements StorageAccess {
         if (folders.values().stream().anyMatch(f -> f.parent == id)
                 || entries.values().stream().anyMatch(e -> e.folder == id)) throw new IllegalArgumentException("not_empty");
         int parent = folders.remove(id).parent;
+        searchRevision++;
         touch();
         return parent;
     }
@@ -161,6 +172,7 @@ public final class StorageInventory implements StorageAccess {
             if (simulate) return amount;
             int id = nextEntry++;
             entries.put(id, new Entry(id, folder, sample, amount));
+            searchRevision++;
         } else {
             if (simulate) return amount;
             entries.put(match.id, new Entry(match.id, folder, match.stack, match.count + amount));
@@ -178,7 +190,7 @@ public final class StorageInventory implements StorageAccess {
         if (entry == null || requested <= 0) return ItemStack.EMPTY;
         int amount = (int) Math.min(Math.min(entry.count, requested), entry.stack.getMaxStackSize());
         if (simulate) return entry.stack.copyWithCount(amount);
-        if (amount == entry.count) entries.remove(id);
+        if (amount == entry.count) { entries.remove(id); searchRevision++; }
         else entries.put(id, new Entry(id, entry.folder, entry.stack, entry.count - amount));
         totalCount -= amount;
         transferRevision++;
@@ -194,6 +206,7 @@ public final class StorageInventory implements StorageAccess {
         if (source.folder == target || requested <= 0) return 0;
         long amount = Math.min(source.count, requested);
         Entry match = matching(target, source.stack);
+        boolean structural = match == null || amount == source.count;
         if (match == null && amount == source.count) {
             entries.put(id, new Entry(id, target, source.stack, amount));
         } else {
@@ -209,6 +222,7 @@ public final class StorageInventory implements StorageAccess {
                 entries.put(match.id, new Entry(match.id, target, match.stack, match.count + amount));
             }
         }
+        if (structural) searchRevision++;
         transferRevision++;
         touch();
         return amount;
@@ -272,6 +286,9 @@ public final class StorageInventory implements StorageAccess {
                     ? failure.getMessage() : "item_decode_failed";
         }
         revision++;
+        searchRevision++;
+        cachedSearchRevision = -1;
+        searchMetadata.clear();
     }
 
     private void readVersioned(CompoundTag tag) {
@@ -383,6 +400,21 @@ public final class StorageInventory implements StorageAccess {
         int page = Math.max(0, Math.min(requestedPage, pages - 1));
         int start = page * pageSize;
         int end = Math.min(totalVisible, start + pageSize);
+        CompoundTag tag = viewHeader(current, page, pages, pageSize, message);
+        tag.putIntArray("PageFolders", children.subList(Math.min(start, children.size()), Math.min(end, children.size()))
+                .stream().mapToInt(Folder::id).toArray());
+        ListTag es = new ListTag();
+        for (Entry e : visible.subList(Math.max(0, start - children.size()), Math.max(0, end - children.size()))) {
+            CompoundTag t = new CompoundTag();
+            t.putInt("Id", e.id); t.putInt("Folder", e.folder); t.putLong("Count", e.count);
+            t.put("Stack", e.stack.save(new CompoundTag()));
+            es.add(t);
+        }
+        tag.put("Entries", es);
+        return tag;
+    }
+
+    private CompoundTag viewHeader(int current, int page, int pages, int pageSize, String message) {
         CompoundTag tag = new CompoundTag();
         tag.putLong("Revision", revision);
         tag.putInt("Current", current);
@@ -400,16 +432,93 @@ public final class StorageInventory implements StorageAccess {
             fs.add(t);
         }
         tag.put("Folders", fs);
-        tag.putIntArray("PageFolders", children.subList(Math.min(start, children.size()), Math.min(end, children.size()))
-                .stream().mapToInt(Folder::id).toArray());
-        ListTag es = new ListTag();
-        for (Entry e : visible.subList(Math.max(0, start - children.size()), Math.max(0, end - children.size()))) {
-            CompoundTag t = new CompoundTag();
-            t.putInt("Id", e.id); t.putLong("Count", e.count);
-            t.put("Stack", e.stack.save(new CompoundTag()));
-            es.add(t);
-        }
-        tag.put("Entries", es);
         return tag;
+    }
+
+    /** A count-free name catalog; retained samples are immutable for an entry's lifetime. */
+    public List<CompoundTag> searchCatalog() {
+        if (cachedSearchRevision != searchRevision) {
+            searchMetadata.keySet().removeIf(id -> !entries.containsKey(id));
+            for (Entry entry : entries.values()) {
+                CompoundTag metadata = searchMetadata.get(entry.id);
+                if (metadata == null) {
+                    metadata = new CompoundTag();
+                    metadata.putInt("Id", entry.id);
+                    metadata.putInt("Folder", entry.folder);
+                    metadata.putString("Item", String.valueOf(ForgeRegistries.ITEMS.getKey(entry.stack.getItem())));
+                    // Keep translatable components intact; only the client resolves its language.
+                    putSearchName(metadata, entry.stack);
+                    searchMetadata.put(entry.id, metadata);
+                }
+                metadata.putInt("Folder", entry.folder);
+            }
+            cachedSearchRevision = searchRevision;
+        }
+        return entries.keySet().stream().map(id -> searchMetadata.get(id).copy()).toList();
+    }
+
+    /** A broken or oversized name affects matching only, never the authoritative item sample. */
+    private static void putSearchName(CompoundTag metadata, ItemStack sample) {
+        String fallback = Component.Serializer.toJson(Component.literal(metadata.getString("Item")));
+        try {
+            String name = Component.Serializer.toJson(sample.copy().getHoverName());
+            // NBT StringTag silently replaces strings over writeUTF's limit with an empty string.
+            // Check modified UTF bytes before serialization so oversized names cannot slip through.
+            int nameBytes = 0;
+            for (int i = 0; i < name.length() && nameBytes <= SearchCatalogSupport.MAX_DATA_BYTES; i++) {
+                char c = name.charAt(i);
+                nameBytes += c >= 1 && c <= 127 ? 1 : c > 2047 ? 3 : 2;
+            }
+            if (nameBytes > SearchCatalogSupport.MAX_DATA_BYTES) { metadata.putString("Name", fallback); return; }
+            metadata.putString("Name", name);
+            if (SearchCatalogSupport.encodedBytes(metadata) + 64 > SearchCatalogSupport.MAX_DATA_BYTES)
+                metadata.putString("Name", fallback);
+        } catch (RuntimeException failure) {
+            metadata.putString("Name", fallback);
+        }
+    }
+
+    /** false means the selected volume; true narrows to root and all descendants. */
+    public boolean inSearchScope(int id, int root, boolean recursive) {
+        Entry entry = entries.get(id);
+        if (entry == null) return false;
+        if (!recursive) return true;
+        for (Folder folder = folders.get(entry.folder); folder != null; folder = folders.get(folder.parent)) {
+            if (folder.id == root) return true;
+        }
+        return false;
+    }
+
+    public CompoundTag searchView(int root, boolean recursive, Set<Integer> matches, int requestedPage,
+                                  int requestedSize, String message) {
+        int size = Math.max(1, Math.min(MAX_PAGE_SIZE, requestedSize));
+        List<Entry> visible = entries.values().stream()
+                .filter(e -> matches.contains(e.id) && inSearchScope(e.id, root, recursive)).toList();
+        int pages = Math.max(1, (visible.size() + size - 1) / size);
+        int page = Math.max(0, Math.min(requestedPage, pages - 1));
+        CompoundTag tag = viewHeader(root, page, pages, size, message);
+        tag.putInt("SearchMatches", visible.size()); tag.putIntArray("PageFolders", new int[0]);
+        ListTag rows = new ListTag();
+        for (Entry entry : visible.subList(page * size, Math.min(visible.size(), (page + 1) * size))) {
+            CompoundTag row = new CompoundTag();
+            row.putInt("Id", entry.id); row.putInt("Folder", entry.folder); row.putLong("Count", entry.count);
+            row.put("Stack", entry.stack.save(new CompoundTag())); rows.add(row);
+        }
+        tag.put("Entries", rows);
+        return tag;
+    }
+
+    /** Normal pages include child folders before entries. */
+    public int locatePage(int id, int requestedSize) {
+        Entry target = entries.get(id);
+        if (target == null) throw new IllegalArgumentException("missing_item");
+        int size = Math.max(PAGE_SIZE, Math.min(MAX_PAGE_SIZE, requestedSize));
+        int index = (int) folders.values().stream().filter(folder -> folder.parent == target.folder).count();
+        for (Entry entry : entries.values()) {
+            if (entry.folder != target.folder) continue;
+            if (entry.id == id) return index / size;
+            index++;
+        }
+        throw new IllegalArgumentException("missing_item");
     }
 }

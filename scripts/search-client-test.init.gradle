@@ -1,0 +1,29 @@
+// Opt-in UI acceptance against work/search-client/saves/Search Probe only.
+// The separate source set is attached only to this client run and never enters the release JAR.
+gradle.beforeProject { p -> p.afterEvaluate {
+    p.sourceSets.create('searchClientTest') {
+        java.srcDir 'src/searchClientTest/java'
+        compileClasspath += p.sourceSets.main.output + p.sourceSets.main.compileClasspath
+        runtimeClasspath += output + compileClasspath
+    }
+    def probeDirectory = p.file('work/search-client')
+    def run = p.minecraft.runs.client
+    run.workingDirectory = probeDirectory
+    run.property 'itemexplorer.searchClientProbe', probeDirectory.absolutePath
+    run.jvmArgs '-Xms256m', '-Xmx1536m'
+    run.mods.itemexplorer.source p.sourceSets.searchClientTest
+    run.args '--username', 'SearchProbe', '--width', '640', '--height', '480', '--quickPlaySingleplayer', 'Search Probe'
+    // ForgeGradle creates the run task later in project evaluation.
+    p.tasks.matching { it.name == 'runClient' }.configureEach {
+        doFirst {
+            def result = new File(probeDirectory, 'result.txt')
+            if (result.exists() && (!result.isFile() || !result.delete()))
+                throw new GradleException('Could not clear the previous isolated search probe result.txt')
+        }
+        doLast {
+            def result = new File(probeDirectory, 'result.txt')
+            if (!result.isFile() || result.getText('UTF-8').trim() != 'PASS')
+                throw new GradleException('Search client acceptance failed or did not finish; inspect work/search-client/report.txt')
+        }
+    }
+} }

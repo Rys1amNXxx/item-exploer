@@ -1,0 +1,7 @@
+Command: dev.ps1 build runGameTestServer --init-script scripts/compat-test.init.gradle --console=plain
+Date: 2026-09-30
+
+[12:27:24] [Server thread/INFO] [minecraft/GameTestServer]: ========= 84 GAME TESTS COMPLETE ======================
+[12:27:24] [Server thread/INFO] [minecraft/GameTestServer]: All 84 required tests passed :)
+BUILD SUCCESSFUL in 54s
+15 actionable tasks: 7 executed, 8 up-to-date

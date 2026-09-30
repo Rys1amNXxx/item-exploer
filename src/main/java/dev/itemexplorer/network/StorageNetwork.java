@@ -5,6 +5,7 @@ import dev.itemexplorer.client.ClientEvents;
 import dev.itemexplorer.menu.StorageMenu;
 import dev.itemexplorer.menu.NasMenu;
 import dev.itemexplorer.menu.LogisticsPortMenu;
+import dev.itemexplorer.storage.StorageSearch;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.resources.ResourceLocation;
@@ -18,14 +19,87 @@ import net.minecraftforge.network.PacketDistributor;
 import net.minecraftforge.network.simple.SimpleChannel;
 
 import java.util.Optional;
+import java.util.Arrays;
+import java.util.Objects;
 import java.util.function.Supplier;
 
 public final class StorageNetwork {
-    private static final String VERSION = "5";
+    private static final String VERSION = "6";
     private static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
             ResourceLocation.fromNamespaceAndPath(ItemExplorer.MOD_ID, "storage"), () -> VERSION, VERSION::equals, VERSION::equals);
 
     public enum Action { OPEN, PAGE, CREATE, RENAME, DELETE, MOVE, WITHDRAW, DEPOSIT_CURSOR, RESIZE, SELECT_VOLUME, RENAME_DISK, DEPOSIT_SLOT }
+    public enum SearchAction { START, APPLY, PAGE, RESIZE, EXIT, LOCATE, TAKE }
+
+    /** Search never carries inventory samples from the client, only bounded entry identities. */
+    public record SearchRequest(int menuId, long session, long querySeq, long catalogRevision, long viewSeq,
+                                SearchAction action, boolean recursive, int page, int pageSize,
+                                int entryId, long amount, long revision, int[] matches) {
+        public SearchRequest {
+            Objects.requireNonNull(action);
+            Objects.requireNonNull(matches);
+            if (matches.length > StorageSearch.MAX_MATCHES) throw new IllegalArgumentException("Too many search matches");
+            matches = matches.clone();
+        }
+        @Override public int[] matches() { return matches.clone(); }
+        public static SearchRequest decode(FriendlyByteBuf buf) {
+            int menu = buf.readVarInt(); long session = buf.readLong(), query = buf.readLong();
+            long catalog = buf.readLong(), view = buf.readLong();
+            SearchAction action = buf.readEnum(SearchAction.class); boolean recursive = buf.readBoolean();
+            int page = buf.readVarInt(), size = buf.readVarInt(), entry = buf.readVarInt();
+            long amount = buf.readLong(), revision = buf.readLong();
+            int length = buf.readVarInt();
+            if (length < 0 || length > StorageSearch.MAX_MATCHES) throw new IllegalArgumentException("Too many search matches");
+            int[] matches = new int[length];
+            for (int i = 0; i < length; i++) matches[i] = buf.readVarInt();
+            return new SearchRequest(menu, session, query, catalog, view, action, recursive, page, size, entry, amount, revision, matches);
+        }
+        public void encode(FriendlyByteBuf buf) {
+            buf.writeVarInt(menuId); buf.writeLong(session); buf.writeLong(querySeq);
+            buf.writeLong(catalogRevision); buf.writeLong(viewSeq); buf.writeEnum(action); buf.writeBoolean(recursive);
+            buf.writeVarInt(page); buf.writeVarInt(pageSize); buf.writeVarInt(entryId);
+            buf.writeLong(amount); buf.writeLong(revision); buf.writeVarInt(matches.length);
+            for (int match : matches) buf.writeVarInt(match);
+        }
+        public void handle(Supplier<NetworkEvent.Context> context) {
+            context.get().enqueueWork(() -> {
+                ServerPlayer player = context.get().getSender();
+                if (player != null && player.containerMenu instanceof StorageMenu menu
+                        && menu.containerId == menuId && menu.stillValid(player)) menu.handleSearch(this);
+            });
+            context.get().setPacketHandled(true);
+        }
+        @Override public boolean equals(Object other) {
+            return other instanceof SearchRequest r && menuId == r.menuId && session == r.session
+                    && querySeq == r.querySeq && catalogRevision == r.catalogRevision && viewSeq == r.viewSeq
+                    && action == r.action && recursive == r.recursive && page == r.page && pageSize == r.pageSize
+                    && entryId == r.entryId && amount == r.amount && revision == r.revision && Arrays.equals(matches, r.matches);
+        }
+        @Override public int hashCode() {
+            return 31 * Objects.hash(menuId, session, querySeq, catalogRevision, viewSeq, action, recursive,
+                    page, pageSize, entryId, amount, revision) + Arrays.hashCode(matches);
+        }
+    }
+
+    /** A chunk of searchable names; quantities and full stacks stay in the paged snapshot. */
+    public record SearchCatalog(int menuId, long session, long catalogRevision, int batch,
+                                boolean reset, boolean complete, CompoundTag data) {
+        public static SearchCatalog decode(FriendlyByteBuf buf) {
+            int menu = buf.readVarInt(); long session = buf.readLong(), revision = buf.readLong();
+            int batch = buf.readVarInt(); boolean reset = buf.readBoolean(), complete = buf.readBoolean();
+            CompoundTag data = buf.readNbt();
+            return new SearchCatalog(menu, session, revision, batch, reset, complete, data == null ? new CompoundTag() : data);
+        }
+        public void encode(FriendlyByteBuf buf) {
+            buf.writeVarInt(menuId); buf.writeLong(session); buf.writeLong(catalogRevision); buf.writeVarInt(batch);
+            buf.writeBoolean(reset); buf.writeBoolean(complete); buf.writeNbt(data);
+        }
+        public void handle(Supplier<NetworkEvent.Context> context) {
+            context.get().enqueueWork(() -> DistExecutor.unsafeRunWhenOn(Dist.CLIENT,
+                    () -> () -> ClientEvents.receive(this)));
+            context.get().setPacketHandled(true);
+        }
+    }
     public record Request(int menuId, long revision, Action action, int id, int target, long amount, String name, long session) {
         public Request(int menuId, long revision, Action action, int id, int target, long amount, String name) {
             this(menuId, revision, action, id, target, amount, name, 0);
@@ -112,11 +186,19 @@ public final class StorageNetwork {
                 Optional.of(NetworkDirection.PLAY_TO_SERVER));
         CHANNEL.registerMessage(3, PortRequest.class, PortRequest::encode, PortRequest::decode, PortRequest::handle,
                 Optional.of(NetworkDirection.PLAY_TO_SERVER));
+        CHANNEL.registerMessage(4, SearchRequest.class, SearchRequest::encode, SearchRequest::decode, SearchRequest::handle,
+                Optional.of(NetworkDirection.PLAY_TO_SERVER));
+        CHANNEL.registerMessage(5, SearchCatalog.class, SearchCatalog::encode, SearchCatalog::decode, SearchCatalog::handle,
+                Optional.of(NetworkDirection.PLAY_TO_CLIENT));
     }
 
     public static void request(Request request) { CHANNEL.sendToServer(request); }
     public static void request(NasRequest request) { CHANNEL.sendToServer(request); }
     public static void request(PortRequest request) { CHANNEL.sendToServer(request); }
+    public static void request(SearchRequest request) { CHANNEL.sendToServer(request); }
+    public static void searchCatalog(ServerPlayer player, SearchCatalog packet) {
+        CHANNEL.send(PacketDistributor.PLAYER.with(() -> player), packet);
+    }
     public static void snapshot(ServerPlayer player, int id, CompoundTag view) {
         CHANNEL.send(PacketDistributor.PLAYER.with(() -> player), new Snapshot(id, view));
     }

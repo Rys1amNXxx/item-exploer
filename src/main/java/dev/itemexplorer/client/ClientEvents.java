@@ -45,4 +45,11 @@ public final class ClientEvents {
         if (minecraft.player != null && minecraft.player.containerMenu instanceof LogisticsPortMenu menu
                 && menu.containerId == snapshot.menuId()) menu.acceptView(snapshot.view());
     }
+
+    public static void receive(StorageNetwork.SearchCatalog catalog) {
+        Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft.player != null && minecraft.player.containerMenu instanceof StorageMenu menu
+                && menu.containerId == catalog.menuId() && minecraft.screen instanceof StorageScreen screen)
+            screen.acceptSearchCatalog(catalog);
+    }
 }

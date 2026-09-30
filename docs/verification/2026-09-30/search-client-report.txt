@@ -1,0 +1,14 @@
+Search client acceptance
+START real Minecraft client pid=33816 language=zh_cn
+PASS real Chinese translation and 320x234 layout; gui=320x240
+PASS Chinese query typed through StorageScreen.charTyped: entire drive has 5 separate iron entries
+SCREENSHOT search-minimum-full-drive.png
+PASS recursive range: starting folder and child only, 2 iron entries
+PASS @namespace+Chinese AND query; right-click TAKE 1 kept selected=3 and quantity=7; stored=173 playerIron=1
+SCREENSHOT search-minimum-recursive-selected.png
+PASS locate opened source folder 3 on page 2 and highlighted the entry
+PASS immediate Esc before debounced APPLY restored source folder page 2
+PASS 440x340 expanded layout; gui=480x360
+PASS English registry-ID query from Chinese client; 5 rows include separate custom-NBT entry
+SCREENSHOT search-expanded-full-drive.png
+PASS all checks; screenshots=3; ticks=87; real client + integrated server; input via screen methods; no OS input
