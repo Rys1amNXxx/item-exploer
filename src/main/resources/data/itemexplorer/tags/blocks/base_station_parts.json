@@ -1,0 +1,12 @@
+{
+  "replace": false,
+  "values": [
+    "itemexplorer:base_station_casing",
+    "itemexplorer:base_station_controller",
+    "itemexplorer:base_station_network_port",
+    "itemexplorer:base_station_module",
+    "itemexplorer:base_station_mast",
+    "itemexplorer:base_station_antenna",
+    "itemexplorer:base_station_cap"
+  ]
+}

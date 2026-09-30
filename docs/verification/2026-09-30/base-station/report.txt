@@ -1,0 +1,14 @@
+Base station real client acceptance
+START pid=11800 language=zh_cn
+PASS baked JSON models: 44 block states + 7 item models; all quads have real texture atlas sprites
+PASS isolated scene: complete 3x3x5 / 17 parts, second 16-part tower, adjacent solid block; frames=40
+SCREENSHOT station-models.png
+PASS complete inspector: real ContainerData 17/17, zero issues; gui=480x360
+SCREENSHOT station-complete.png
+PASS live inspector update without reopening: 16/17, missing cap at BlockPos{x=80, y=86, z=80}
+SCREENSHOT station-incomplete.png
+PASS rendered construction guide toggled through its real button
+SCREENSHOT station-guide.png
+PASS construction guide at minimum 640x480 window / 320x240 GUI
+SCREENSHOT station-guide-minimum.png
+PASS all checks; screenshots=5; real baked JSON models + integrated server + ContainerData; ticks=96

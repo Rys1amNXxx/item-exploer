@@ -1,0 +1,73 @@
+{
+  "version": 1,
+  "size": [
+    32,
+    32
+  ],
+  "format": "RGBA8 PNG",
+  "alpha": 255,
+  "emissive": false,
+  "usage": "Design drafts only; no game block registration.",
+  "textures": [
+    {
+      "number": 1,
+      "file": "textures/casing_side.png",
+      "title": "机壳侧面"
+    },
+    {
+      "number": 2,
+      "file": "textures/casing_top.png",
+      "title": "机壳顶面 / 通用底面"
+    },
+    {
+      "number": 3,
+      "file": "textures/controller_front_off.png",
+      "title": "控制器正面 · 离线"
+    },
+    {
+      "number": 4,
+      "file": "textures/controller_front_online.png",
+      "title": "控制器正面 · 在线"
+    },
+    {
+      "number": 5,
+      "file": "textures/controller_front_active.png",
+      "title": "控制器正面 · 传输中"
+    },
+    {
+      "number": 6,
+      "file": "textures/controller_front_error.png",
+      "title": "控制器正面 · 异常"
+    },
+    {
+      "number": 7,
+      "file": "textures/data_port.png",
+      "title": "数据接线口正面"
+    },
+    {
+      "number": 8,
+      "file": "textures/blank_module.png",
+      "title": "空白扩展模块正面"
+    },
+    {
+      "number": 9,
+      "file": "textures/mast_side.png",
+      "title": "立柱侧面"
+    },
+    {
+      "number": 10,
+      "file": "textures/antenna_face.png",
+      "title": "天线板外侧"
+    },
+    {
+      "number": 11,
+      "file": "textures/antenna_back.png",
+      "title": "天线板内侧 / 窄侧面"
+    },
+    {
+      "number": 12,
+      "file": "textures/antenna_cap.png",
+      "title": "顶帽上表面"
+    }
+  ]
+}

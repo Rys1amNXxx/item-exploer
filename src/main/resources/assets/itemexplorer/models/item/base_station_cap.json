@@ -1,0 +1,22 @@
+{
+  "parent": "itemexplorer:block/base_station_cap",
+  "display": {
+    "gui": {
+      "rotation": [
+        25,
+        -35,
+        0
+      ],
+      "translation": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        0.9,
+        0.9,
+        0.9
+      ]
+    }
+  }
+}

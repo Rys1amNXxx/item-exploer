@@ -1,0 +1,24 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "redstone",
+  "pattern": [
+    " R ",
+    "ICI",
+    " R "
+  ],
+  "key": {
+    "R": {
+      "item": "minecraft:redstone"
+    },
+    "I": {
+      "item": "minecraft:iron_nugget"
+    },
+    "C": {
+      "item": "itemexplorer:base_station_casing"
+    }
+  },
+  "result": {
+    "item": "itemexplorer:base_station_network_port",
+    "count": 1
+  }
+}

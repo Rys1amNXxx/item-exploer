@@ -1,0 +1,20 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "redstone",
+  "pattern": [
+    " I ",
+    " C "
+  ],
+  "key": {
+    "I": {
+      "item": "minecraft:iron_nugget"
+    },
+    "C": {
+      "item": "itemexplorer:base_station_casing"
+    }
+  },
+  "result": {
+    "item": "itemexplorer:base_station_module",
+    "count": 1
+  }
+}

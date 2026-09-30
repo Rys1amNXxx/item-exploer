@@ -11,8 +11,16 @@ import dev.itemexplorer.disk.DiskTier;
 import dev.itemexplorer.block.LogisticsPortBlock;
 import dev.itemexplorer.block.LogisticsPortBlockEntity;
 import dev.itemexplorer.menu.LogisticsPortMenu;
+import dev.itemexplorer.block.BaseStationControllerBlock;
+import dev.itemexplorer.block.BaseStationBlockEntity;
+import dev.itemexplorer.block.BaseStationPartBlock;
+import dev.itemexplorer.block.BaseStationMastBlock;
+import dev.itemexplorer.menu.BaseStationMenu;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.network.chat.Component;
 import net.minecraft.world.inventory.MenuType;
 import net.minecraft.world.item.BlockItem;
+import net.minecraft.world.item.CreativeModeTab;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntityType;
@@ -27,6 +35,7 @@ public final class ModContent {
     private static final DeferredRegister<Item> ITEMS = DeferredRegister.create(ForgeRegistries.ITEMS, ItemExplorer.MOD_ID);
     private static final DeferredRegister<BlockEntityType<?>> ENTITIES = DeferredRegister.create(ForgeRegistries.BLOCK_ENTITY_TYPES, ItemExplorer.MOD_ID);
     private static final DeferredRegister<MenuType<?>> MENUS = DeferredRegister.create(ForgeRegistries.MENU_TYPES, ItemExplorer.MOD_ID);
+    private static final DeferredRegister<CreativeModeTab> CREATIVE_TABS = DeferredRegister.create(Registries.CREATIVE_MODE_TAB, ItemExplorer.MOD_ID);
 
     public static final RegistryObject<Block> STORAGE_BLOCK = BLOCKS.register("storage_terminal", StorageBlock::new);
     public static final RegistryObject<Item> STORAGE_ITEM = ITEMS.register("storage_terminal",
@@ -49,16 +58,66 @@ public final class ModContent {
     public static final RegistryObject<BlockEntityType<NasBlockEntity>> NAS_ENTITY = ENTITIES.register("nas",
             () -> BlockEntityType.Builder.of(NasBlockEntity::new, NAS_BLOCK.get()).build(null));
     public static final RegistryObject<MenuType<NasMenu>> NAS_MENU = MENUS.register("nas", () -> IForgeMenuType.create(NasMenu::new));
+
+    public static final RegistryObject<Block> BASE_STATION_CASING_BLOCK = BLOCKS.register("base_station_casing",
+            () -> new BaseStationPartBlock(BaseStationPartBlock.Part.CASING));
+    public static final RegistryObject<Block> BASE_STATION_CONTROLLER_BLOCK = BLOCKS.register("base_station_controller", BaseStationControllerBlock::new);
+    public static final RegistryObject<Block> BASE_STATION_NETWORK_PORT_BLOCK = BLOCKS.register("base_station_network_port",
+            () -> new BaseStationPartBlock(BaseStationPartBlock.Part.NETWORK_PORT));
+    public static final RegistryObject<Block> BASE_STATION_MODULE_BLOCK = BLOCKS.register("base_station_module",
+            () -> new BaseStationPartBlock(BaseStationPartBlock.Part.MODULE));
+    public static final RegistryObject<Block> BASE_STATION_MAST_BLOCK = BLOCKS.register("base_station_mast", BaseStationMastBlock::new);
+    public static final RegistryObject<Block> BASE_STATION_ANTENNA_BLOCK = BLOCKS.register("base_station_antenna",
+            () -> new BaseStationPartBlock(BaseStationPartBlock.Part.ANTENNA));
+    public static final RegistryObject<Block> BASE_STATION_CAP_BLOCK = BLOCKS.register("base_station_cap",
+            () -> new BaseStationPartBlock(BaseStationPartBlock.Part.CAP));
+    public static final RegistryObject<Item> BASE_STATION_CASING_ITEM = blockItem("base_station_casing", BASE_STATION_CASING_BLOCK);
+    public static final RegistryObject<Item> BASE_STATION_CONTROLLER_ITEM = blockItem("base_station_controller", BASE_STATION_CONTROLLER_BLOCK);
+    public static final RegistryObject<Item> BASE_STATION_NETWORK_PORT_ITEM = blockItem("base_station_network_port", BASE_STATION_NETWORK_PORT_BLOCK);
+    public static final RegistryObject<Item> BASE_STATION_MODULE_ITEM = blockItem("base_station_module", BASE_STATION_MODULE_BLOCK);
+    public static final RegistryObject<Item> BASE_STATION_MAST_ITEM = blockItem("base_station_mast", BASE_STATION_MAST_BLOCK);
+    public static final RegistryObject<Item> BASE_STATION_ANTENNA_ITEM = blockItem("base_station_antenna", BASE_STATION_ANTENNA_BLOCK);
+    public static final RegistryObject<Item> BASE_STATION_CAP_ITEM = blockItem("base_station_cap", BASE_STATION_CAP_BLOCK);
+    public static final RegistryObject<BlockEntityType<BaseStationBlockEntity>> BASE_STATION_ENTITY = ENTITIES.register("base_station_controller",
+            () -> BlockEntityType.Builder.of(BaseStationBlockEntity::new, BASE_STATION_CONTROLLER_BLOCK.get()).build(null));
+    public static final RegistryObject<MenuType<BaseStationMenu>> BASE_STATION_MENU = MENUS.register("base_station_controller",
+            () -> IForgeMenuType.create(BaseStationMenu::new));
+    private static RegistryObject<Item> blockItem(String name, RegistryObject<Block> block) {
+        return ITEMS.register(name, () -> new BlockItem(block.get(), new Item.Properties()));
+    }
     public static final RegistryObject<Item> DISK_64K = disk(DiskTier.K64);
     public static final RegistryObject<Item> DISK_256K = disk(DiskTier.K256);
     public static final RegistryObject<Item> DISK_1M = disk(DiskTier.M1);
     public static final RegistryObject<Item> DISK_16M = disk(DiskTier.M16);
     private static RegistryObject<Item> disk(DiskTier tier) { return ITEMS.register("disk_" + tier.id(), () -> new DiskItem(tier)); }
 
+    public static final RegistryObject<CreativeModeTab> ITEM_EXPLORER_TAB = CREATIVE_TABS.register("item_explorer",
+            () -> CreativeModeTab.builder()
+                    .title(Component.translatable("itemGroup.itemexplorer"))
+                    .icon(() -> STORAGE_ITEM.get().getDefaultInstance())
+                    .displayItems((parameters, output) -> {
+                        output.accept(STORAGE_ITEM.get());
+                        output.accept(NAS_ITEM.get());
+                        output.accept(LOGISTICS_ITEM.get());
+                        output.accept(DISK_64K.get());
+                        output.accept(DISK_256K.get());
+                        output.accept(DISK_1M.get());
+                        output.accept(DISK_16M.get());
+                        output.accept(BASE_STATION_CONTROLLER_ITEM.get());
+                        output.accept(BASE_STATION_CASING_ITEM.get());
+                        output.accept(BASE_STATION_NETWORK_PORT_ITEM.get());
+                        output.accept(BASE_STATION_MODULE_ITEM.get());
+                        output.accept(BASE_STATION_MAST_ITEM.get());
+                        output.accept(BASE_STATION_ANTENNA_ITEM.get());
+                        output.accept(BASE_STATION_CAP_ITEM.get());
+                    })
+                    .build());
+
     public static void register(IEventBus bus) {
         BLOCKS.register(bus);
         ITEMS.register(bus);
         ENTITIES.register(bus);
         MENUS.register(bus);
+        CREATIVE_TABS.register(bus);
     }
 }

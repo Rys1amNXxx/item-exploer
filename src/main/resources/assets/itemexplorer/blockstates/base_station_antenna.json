@@ -1,0 +1,19 @@
+{
+  "variants": {
+    "facing=north": {
+      "model": "itemexplorer:block/base_station_antenna"
+    },
+    "facing=east": {
+      "model": "itemexplorer:block/base_station_antenna",
+      "y": 90
+    },
+    "facing=south": {
+      "model": "itemexplorer:block/base_station_antenna",
+      "y": 180
+    },
+    "facing=west": {
+      "model": "itemexplorer:block/base_station_antenna",
+      "y": 270
+    }
+  }
+}

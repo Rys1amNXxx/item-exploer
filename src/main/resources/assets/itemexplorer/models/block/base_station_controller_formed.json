@@ -1,0 +1,6 @@
+{
+  "parent": "itemexplorer:block/base_station_controller",
+  "textures": {
+    "front": "itemexplorer:block/base_station/controller_front_online"
+  }
+}

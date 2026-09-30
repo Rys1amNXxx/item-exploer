@@ -33,6 +33,7 @@ public final class ClientEvents {
             MenuScreens.register(ModContent.STORAGE_MENU.get(), StorageScreen::new);
             MenuScreens.register(ModContent.NAS_MENU.get(), NasScreen::new);
             MenuScreens.register(ModContent.LOGISTICS_MENU.get(), LogisticsPortScreen::new);
+            MenuScreens.register(ModContent.BASE_STATION_MENU.get(), BaseStationScreen::new);
         });
     }
 

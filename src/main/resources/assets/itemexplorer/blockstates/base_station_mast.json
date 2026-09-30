@@ -1,0 +1,79 @@
+{
+  "multipart": [
+    {
+      "apply": {
+        "model": "itemexplorer:block/base_station_mast_core"
+      }
+    },
+    {
+      "when": {
+        "north": "false"
+      },
+      "apply": {
+        "model": "itemexplorer:block/base_station_mast_cover"
+      }
+    },
+    {
+      "when": {
+        "north": "true"
+      },
+      "apply": {
+        "model": "itemexplorer:block/base_station_mast_arm"
+      }
+    },
+    {
+      "when": {
+        "east": "false"
+      },
+      "apply": {
+        "model": "itemexplorer:block/base_station_mast_cover",
+        "y": 90
+      }
+    },
+    {
+      "when": {
+        "east": "true"
+      },
+      "apply": {
+        "model": "itemexplorer:block/base_station_mast_arm",
+        "y": 90
+      }
+    },
+    {
+      "when": {
+        "south": "false"
+      },
+      "apply": {
+        "model": "itemexplorer:block/base_station_mast_cover",
+        "y": 180
+      }
+    },
+    {
+      "when": {
+        "south": "true"
+      },
+      "apply": {
+        "model": "itemexplorer:block/base_station_mast_arm",
+        "y": 180
+      }
+    },
+    {
+      "when": {
+        "west": "false"
+      },
+      "apply": {
+        "model": "itemexplorer:block/base_station_mast_cover",
+        "y": 270
+      }
+    },
+    {
+      "when": {
+        "west": "true"
+      },
+      "apply": {
+        "model": "itemexplorer:block/base_station_mast_arm",
+        "y": 270
+      }
+    }
+  ]
+}

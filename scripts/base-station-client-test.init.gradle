@@ -1,0 +1,30 @@
+// Opt-in real-render acceptance. Use only the disposable work/base-station-client/saves/Base Station Probe copy.
+// This source set is attached to this client invocation only and is never packaged in the release JAR.
+gradle.beforeProject { p -> p.afterEvaluate {
+    p.sourceSets.create('stationClientTest') {
+        java.srcDir 'src/stationClientTest/java'
+        compileClasspath += p.sourceSets.main.output + p.sourceSets.main.compileClasspath
+        runtimeClasspath += output + compileClasspath
+    }
+    def probeDirectory = p.file('work/base-station-client')
+    def run = p.minecraft.runs.client
+    run.workingDirectory = probeDirectory
+    run.property 'itemexplorer.stationClientProbe', probeDirectory.absolutePath
+    run.jvmArgs '-Xms256m', '-Xmx1536m'
+    run.mods.itemexplorer.source p.sourceSets.stationClientTest
+    run.args '--username', 'StationProbe', '--width', '960', '--height', '720', '--quickPlaySingleplayer', 'Base Station Probe'
+    p.tasks.matching { it.name == 'runClient' }.configureEach {
+        doFirst {
+            if (!new File(probeDirectory, 'saves/Base Station Probe/level.dat').isFile())
+                throw new GradleException('Prepare an isolated Base Station Probe world copy in work/base-station-client/saves before running this probe')
+            def result = new File(probeDirectory, 'result.txt')
+            if (result.exists() && (!result.isFile() || !result.delete()))
+                throw new GradleException('Could not clear the isolated base-station probe result.txt')
+        }
+        doLast {
+            def result = new File(probeDirectory, 'result.txt')
+            if (!result.isFile() || result.getText('UTF-8').trim() != 'PASS')
+                throw new GradleException('Base station client acceptance failed or timed out; inspect work/base-station-client/report.txt')
+        }
+    }
+} }
