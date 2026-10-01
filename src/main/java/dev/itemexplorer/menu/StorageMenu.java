@@ -11,6 +11,8 @@ import dev.itemexplorer.storage.StorageAccess;
 import dev.itemexplorer.storage.StorageInventory;
 import dev.itemexplorer.storage.StorageTransfers;
 import dev.itemexplorer.storage.SearchCatalogSupport;
+import dev.itemexplorer.production.TerminalPrograms;
+import dev.itemexplorer.production.ProgramFile;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
@@ -45,6 +47,7 @@ public final class StorageMenu extends AbstractContainerMenu {
     private boolean closed;
     private CompoundTag clientView = new CompoundTag(), sentView;
     private long sentRevision = -2, sentSession;
+    private long sentProgramRevision = -2, nextProgramRefresh;
     private String sentNasStamp = "";
     private CableStorageAccess.Result nasAccess = new CableStorageAccess.Result(List.of(), 0, "checking");
     private long nextTopologyCheck = Long.MIN_VALUE;
@@ -68,6 +71,15 @@ public final class StorageMenu extends AbstractContainerMenu {
     public CompoundTag view() { return clientView; }
     public void acceptView(CompoundTag view) { clientView = view.copy(); }
     public int currentFolder() { return currentFolder; }
+    public void restoreLocation(int folder, int requestedPage) {
+        restoreLocation(folder, requestedPage, StorageInventory.PAGE_SIZE);
+    }
+    public void restoreLocation(int folder, int requestedPage, int requestedSize) {
+        if (blockEntity != null && blockEntity.inventory().hasFolder(folder)) {
+            currentFolder = folder; page = Math.max(0, requestedPage);
+            pageSize = Math.max(StorageInventory.PAGE_SIZE, Math.min(StorageInventory.MAX_PAGE_SIZE, requestedSize));
+        }
+    }
     public long session() { refreshMount(); return session; }
     public void arrangeClientSlots(int x, int y) {
         if (blockEntity != null) return;
@@ -134,6 +146,7 @@ public final class StorageMenu extends AbstractContainerMenu {
         return currentSnapshot();
     }
     private CompoundTag currentSnapshot() {
+        TerminalPrograms.reconcile(blockEntity);
         StorageAccess storage = storage();
         if (storage != null && !storage.hasFolder(currentFolder)) {
             currentFolder = 0; page = 0;
@@ -146,9 +159,13 @@ public final class StorageMenu extends AbstractContainerMenu {
             view.putString("Message", message.isEmpty() ? "disk_offline" : message);
         } else view = searching
                 ? storage.searchView(searchRoot, searchRecursive, searchReady ? searchMatches : Set.of(), page, pageSize, message)
+                : volume.isEmpty() ? TerminalPrograms.directoryView(blockEntity, currentFolder, page, pageSize, message)
                 : storage.view(currentFolder, page, pageSize, message);
         page = view.getInt("Page");
         view.putBoolean("Available", storage != null); view.putLong("Session", session); view.putString("Volume", volume);
+        view.putLong("ProgramRevision", blockEntity.programs().revision());
+        view.putBoolean("ProgramsAvailable", volume.isEmpty() && !searching && !blockEntity.programs().isLocked()
+                && !blockEntity.inventory().isLocked());
         view.putBoolean("Searching", searching); view.putBoolean("SearchReady", searchReady);
         view.putInt("SearchRoot", searchRoot); view.putBoolean("SearchRecursive", searchRecursive);
         view.putLong("SearchRevision", storage == null ? -1 : storage.searchRevision());
@@ -187,11 +204,15 @@ public final class StorageMenu extends AbstractContainerMenu {
         invalidateSearch(storage);
         boolean catalogSent = syncCatalog(serverPlayer, storage);
         long revision = storage == null ? -1 : storage.revision();
+        long programRevision = blockEntity.programs().revision();
+        boolean programRefresh = !blockEntity.programs().files().isEmpty() && player.level().getGameTime() >= nextProgramRefresh;
+        if (programRefresh) nextProgramRefresh = player.level().getGameTime() + 20;
         StringBuilder devices = new StringBuilder(nasAccess.wireStatus()).append(':').append(nasAccess.wiredCabinets());
         for (NasBlockEntity nas : nasAccess.cabinets()) devices.append('|').append(nas.getBlockPos().asLong())
                 .append(':').append(nas.stamp(0)).append(':').append(nas.revision());
         String nasStamp = devices.toString();
-        if (!force && !catalogSent && revision == sentRevision && session == sentSession && nasStamp.equals(sentNasStamp)) return;
+        if (!force && !catalogSent && !programRefresh && programRevision == sentProgramRevision
+                && revision == sentRevision && session == sentSession && nasStamp.equals(sentNasStamp)) return;
         CompoundTag view = currentSnapshot();
         if (force || catalogSent || !view.equals(sentView)) {
             if (searching) {
@@ -204,6 +225,7 @@ public final class StorageMenu extends AbstractContainerMenu {
             StorageNetwork.snapshot(serverPlayer, containerId, view); sentView = view;
         }
         sentRevision = revision; sentSession = session; sentNasStamp = nasStamp;
+        sentProgramRevision = blockEntity.programs().revision();
         message = "";
     }
     @Override public void broadcastChanges() {
@@ -245,7 +267,8 @@ public final class StorageMenu extends AbstractContainerMenu {
                 if (!volume.isEmpty() && bay(nas()) < 0) { volume = previous; throw new IllegalArgumentException("disk_offline"); }
                 session = MenuSession.next(); currentFolder = page = 0; refreshMount();
             } else if (request.action() == StorageNetwork.Action.RESIZE) {
-                pageSize = (int) Math.max(StorageInventory.PAGE_SIZE, Math.min(StorageInventory.MAX_PAGE_SIZE, amount)); page = 0;
+                int resized = (int) Math.max(StorageInventory.PAGE_SIZE, Math.min(StorageInventory.MAX_PAGE_SIZE, amount));
+                if (resized != pageSize) { pageSize = resized; page = 0; }
             } else {
                 if (storage == null) throw new IllegalArgumentException("disk_offline");
                 if (!storage.hasFolder(currentFolder)) currentFolder = 0;
@@ -259,7 +282,11 @@ public final class StorageMenu extends AbstractContainerMenu {
                         if (currentFolder != 0 || bay < 0) throw new IllegalArgumentException("invalid_folder");
                         nas.rename(bay, request.name()); message = "renamed";
                     }
-                    case DELETE -> { currentFolder = storage.deleteFolder(currentFolder); page = 0; message = "deleted"; }
+                    case DELETE -> {
+                        if (volume.isEmpty() && (blockEntity.programs().isLocked() || blockEntity.programs().hasFilesIn(currentFolder)))
+                            throw new IllegalArgumentException(blockEntity.programs().isLocked() ? "production_storage_locked" : "not_empty");
+                        currentFolder = storage.deleteFolder(currentFolder); page = 0; message = "deleted";
+                    }
                     case MOVE -> { requireVisibleEntry(storage, request.id()); message = storage.move(request.id(), request.target(), amount) > 0 ? "moved" : "no_change"; }
                     case WITHDRAW -> { requireVisibleEntry(storage, request.id()); message = StorageTransfers.withdraw(storage, player.getInventory(), request.id(), amount) > 0 ? "withdrawn" : "inventory_full"; }
                     case DEPOSIT_CURSOR -> {
@@ -276,6 +303,50 @@ public final class StorageMenu extends AbstractContainerMenu {
     private void requireVisibleEntry(StorageAccess storage, int id) {
         StorageInventory.Entry entry = storage.entry(id);
         if (entry == null || entry.folder() != currentFolder) throw new IllegalArgumentException("missing_item");
+    }
+
+    public void handleFile(StorageNetwork.FileRequest request) {
+        if (blockEntity == null || request.menuId() != containerId || !stillValid(player) || !allowAction()) return;
+        refreshMount(); TerminalPrograms.reconcile(blockEntity);
+        if (request.session() != session || request.revision() != blockEntity.inventory().revision()
+                || request.programRevision() != blockEntity.programs().revision()) { message = "production_stale"; sync(true); return; }
+        try {
+            if (!volume.isEmpty() || searching) throw new IllegalArgumentException("production_local_only");
+            if (blockEntity.programs().isLocked() || blockEntity.inventory().isLocked()) throw new IllegalArgumentException("production_storage_locked");
+            ProgramFile file = blockEntity.programs().file(request.id());
+            if (request.action() != StorageNetwork.FileAction.CREATE && (file == null || file.folder() != currentFolder))
+                throw new IllegalArgumentException("production_missing_program");
+            switch (request.action()) {
+                case CREATE -> { blockEntity.programs().create(currentFolder, request.name()); page = 0; message = "created"; }
+                case OPEN -> {
+                    TerminalPrograms.open((ServerPlayer) player, blockEntity, file.id(), currentFolder, page, pageSize); return;
+                }
+                case RENAME -> { blockEntity.programs().rename(file.id(), request.name()); message = "renamed"; }
+                case DELETE -> { blockEntity.programs().delete(file.id()); message = "deleted"; }
+                case MOVE -> { blockEntity.programs().move(file.id(), request.target()); message = "moved"; }
+                case COPY -> {
+                    String name = request.name().isBlank() ? defaultProgramCopyName(file) : request.name();
+                    blockEntity.programs().copy(file.id(), currentFolder, name); message = "created";
+                }
+            }
+        } catch (IllegalArgumentException rejected) { message = rejected.getMessage(); }
+        sync(true);
+    }
+
+    private String defaultProgramCopyName(ProgramFile source) {
+        String original = source.name();
+        boolean executable = original.length() >= 4 && original.regionMatches(true, original.length() - 4, ".exe", 0, 4);
+        String extension = executable ? original.substring(original.length() - 4) : "";
+        String base = executable ? original.substring(0, original.length() - 4) : original;
+        for (int number = 2; ; number++) {
+            String suffix = " (" + number + ")";
+            int end = Math.min(base.length(), StorageInventory.MAX_NAME - suffix.length() - extension.length());
+            if (end > 0 && end < base.length() && Character.isHighSurrogate(base.charAt(end - 1))) end--;
+            String candidate = StorageInventory.validName(base.substring(0, end) + suffix + extension);
+            boolean exists = blockEntity.programs().files().stream().anyMatch(file -> file.folder() == currentFolder
+                    && file.name().equalsIgnoreCase(candidate));
+            if (!exists) return candidate;
+        }
     }
 
     private boolean allowAction() {
@@ -386,6 +457,16 @@ public final class StorageMenu extends AbstractContainerMenu {
                         StorageInventory.Entry entry = storage.entry(request.entryId());
                         int normalSize = savedPageSize;
                         int targetPage = storage.locatePage(entry.id(), normalSize);
+                        if (volume.isEmpty()) {
+                            int offset = (int) blockEntity.inventory().folders().stream().filter(f -> f.parent() == entry.folder()).count()
+                                    + (int) blockEntity.programs().files().stream().filter(f -> f.folder() == entry.folder()).count();
+                            for (var candidate : blockEntity.inventory().entries()) {
+                                if (candidate.folder() != entry.folder()) continue;
+                                if (candidate.id() == entry.id()) break;
+                                offset++;
+                            }
+                            targetPage = offset / normalSize;
+                        }
                         exitSearch(false); currentFolder = entry.folder(); page = targetPage; pageSize = normalSize; located = entry.id();
                     }
                     default -> { }

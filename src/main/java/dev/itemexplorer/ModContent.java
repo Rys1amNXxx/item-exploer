@@ -12,6 +12,9 @@ import dev.itemexplorer.disk.DiskTier;
 import dev.itemexplorer.block.LogisticsPortBlock;
 import dev.itemexplorer.block.LogisticsPortBlockEntity;
 import dev.itemexplorer.menu.LogisticsPortMenu;
+import dev.itemexplorer.block.ProductionPortBlock;
+import dev.itemexplorer.block.ProductionPortBlockEntity;
+import dev.itemexplorer.menu.ProductionPortMenu;
 import dev.itemexplorer.block.BaseStationControllerBlock;
 import dev.itemexplorer.block.BaseStationBlockEntity;
 import dev.itemexplorer.block.BaseStationPartBlock;
@@ -56,6 +59,13 @@ public final class ModContent {
     public static final RegistryObject<BlockEntityType<LogisticsPortBlockEntity>> LOGISTICS_ENTITY = ENTITIES.register("logistics_port",
             () -> BlockEntityType.Builder.of(LogisticsPortBlockEntity::new, LOGISTICS_BLOCK.get()).build(null));
     public static final RegistryObject<MenuType<LogisticsPortMenu>> LOGISTICS_MENU = MENUS.register("logistics_port", () -> IForgeMenuType.create(LogisticsPortMenu::new));
+
+    public static final RegistryObject<Block> PRODUCTION_BLOCK = BLOCKS.register("production_port", ProductionPortBlock::new);
+    public static final RegistryObject<Item> PRODUCTION_ITEM = blockItem("production_port", PRODUCTION_BLOCK);
+    public static final RegistryObject<BlockEntityType<ProductionPortBlockEntity>> PRODUCTION_ENTITY = ENTITIES.register("production_port",
+            () -> BlockEntityType.Builder.of(ProductionPortBlockEntity::new, PRODUCTION_BLOCK.get()).build(null));
+    public static final RegistryObject<MenuType<ProductionPortMenu>> PRODUCTION_MENU = MENUS.register("production_port",
+            () -> IForgeMenuType.create(ProductionPortMenu::new));
 
     public static final RegistryObject<Block> NAS_BLOCK = BLOCKS.register("nas", NasBlock::new);
     public static final RegistryObject<Item> NAS_ITEM = ITEMS.register("nas", () -> new BlockItem(NAS_BLOCK.get(), new Item.Properties()));
@@ -103,6 +113,7 @@ public final class ModContent {
                         output.accept(STORAGE_ITEM.get());
                         output.accept(NAS_ITEM.get());
                         output.accept(LOGISTICS_ITEM.get());
+                        output.accept(PRODUCTION_ITEM.get());
                         output.accept(DATA_CABLE_ITEM.get());
                         output.accept(DISK_64K.get());
                         output.accept(DISK_256K.get());

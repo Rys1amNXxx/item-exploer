@@ -87,7 +87,6 @@ public final class NasScreen extends AbstractContainerScreen<NasMenu> {
                     : Component.translatable("message.itemexplorer." + (status.isEmpty() ? "empty_bay" : status)).getString();
             g.drawString(font, font.plainSubstrByWidth(detail, 152), leftPos + 32, y + 15, 0xff303030, false);
         }
-        g.drawString(font, label("nas_hint"), leftPos + 9, topPos + 141, 0xff505050, false);
         for (var slot : menu.slots) {
             int x = leftPos + slot.x, y = topPos + slot.y;
             g.fill(x - 1, y - 1, x + 17, y + 17, 0xffffffff); g.fill(x - 1, y - 1, x + 16, y + 16, 0xff373737); g.fill(x, y, x + 16, y + 16, 0xff8b8b8b);

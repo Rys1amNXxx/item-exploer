@@ -1,0 +1,10 @@
+{
+  "variants": {
+    "facing=north": { "model": "itemexplorer:block/production_port" },
+    "facing=east": { "model": "itemexplorer:block/production_port", "y": 90 },
+    "facing=south": { "model": "itemexplorer:block/production_port", "y": 180 },
+    "facing=west": { "model": "itemexplorer:block/production_port", "y": 270 },
+    "facing=up": { "model": "itemexplorer:block/production_port", "x": 270 },
+    "facing=down": { "model": "itemexplorer:block/production_port", "x": 90 }
+  }
+}

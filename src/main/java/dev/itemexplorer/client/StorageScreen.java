@@ -41,12 +41,13 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
     private List<Volume> volumes = List.of();
     private boolean awaitingVolume;
     private long volumeRequestedAt;
-    private record Tile(Folder folder, Entry entry) {}
+    private record ProgramFile(int id, int folder, String name, boolean configured, boolean active, String machine, String status) {}
+    private record Tile(Folder folder, ProgramFile program, Entry entry) {}
     private record Crumb(int id, String name, String display, int x, int width) {}
     private StorageLayout layout;
     private EditBox quantity, folderName, searchQuery;
     private Button create, rename, delete, up, previous, next, withdraw, move, all, deposit, modalOk, modalCancel;
-    private Button searchOpen, searchScope, searchExit;
+    private Button searchOpen, searchScope, searchExit, modalKind;
     private boolean searching, searchRecursive, catalogLoading, applyingSearch, awaitingSearchExit;
     private CompoundTag searchTransitionView;
     private long searchSession, querySeq, catalogRevision = -1, pendingCatalogRevision = -1, searchChangedAt;
@@ -55,15 +56,16 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
     private long doubleClickAt, searchRequestedAt;
     private Map<Integer, CatalogEntry> catalog = new LinkedHashMap<>(), pendingCatalog;
     private Language catalogLanguage;
-    private int selected = -1, folderScroll, lastFolder = -1, dragCandidate = -1;
+    private int selected = -1, selectedProgram = -1, folderScroll, lastFolder = -1, dragCandidate = -1;
     private double pressX, pressY;
-    private boolean dragging, choosingTarget, modal, renaming;
+    private boolean dragging, choosingTarget, modal, renaming, programModal;
     private final Set<Integer> collapsed = new HashSet<>();
     private final Set<Integer> parents = new HashSet<>();
     private CompoundTag cachedView;
     private boolean cachedSearching, cachedSearchReady;
     private List<Folder> folders = List.of(), tree = List.of();
     private List<Entry> entries = List.of();
+    private List<ProgramFile> programs = List.of();
     private List<Tile> tiles = List.of();
     private List<Crumb> crumbs = List.of();
     private int requestedPageSize = -1;
@@ -94,7 +96,10 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
         menu.arrangeClientSlots(layout.inventoryX(), layout.inventoryY());
         create = button(8, 23, 48, "new", b -> openModal(false));
         rename = button(60, 23, 42, "rename", b -> openModal(true));
-        delete = button(106, 23, 42, "delete", b -> send(Action.DELETE, 0, 0, 0, ""));
+        delete = button(106, 23, 42, "delete", b -> {
+            if (selectedProgram() != null) sendFile(StorageNetwork.FileAction.DELETE, selectedProgram, current(), "");
+            else send(Action.DELETE, 0, 0, 0, "");
+        });
         up = button(152, 23, 42, "up", b -> {
             Folder f = folder(current());
             if (f != null && f.parent >= 0) activateFolder(f.parent);
@@ -120,11 +125,15 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
         quantity.setMaxLength(19);
         quantity.setFilter(s -> s.matches("[0-9]{0,19}"));
         quantity.setValue(savedQuantity);
-        withdraw = button(x + 72, y, 44, "withdraw", b -> takeSelected(amount()));
+        withdraw = button(x + 72, y, 44, "withdraw", b -> {
+            if (selectedProgram() != null) sendFile(StorageNetwork.FileAction.OPEN, selectedProgram, current(), "");
+            else takeSelected(amount());
+        });
         move = button(x + 120, y, 64, "move", b -> {
             if (searching) locateSelected(); else choosingTarget = !choosingTarget;
         });
         all = button(x + 188, y, 44, "all", b -> {
+            if (selectedProgram() != null) { sendFile(StorageNetwork.FileAction.COPY, selectedProgram, current(), ""); return; }
             Entry e = selectedEntry(); if (e != null) quantity.setValue(Long.toString(e.count));
         });
         deposit = button(x + 240, y, 64, "deposit", b -> send(Action.DEPOSIT_CURSOR, 0, 0, 0, ""));
@@ -138,6 +147,12 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
         folderName.setMaxLength(StorageInventory.MAX_NAME);
         modalOk = button(mx + 92, my + 52, 64, "confirm", b -> submitModal());
         modalCancel = button(mx + 164, my + 52, 64, "cancel", b -> closeModal());
+        modalKind = button(mx + 92, my + 4, 136, "file_kind_folder", b -> {
+            programModal = !programModal;
+            modalKind.setMessage(label(programModal ? "file_kind_program" : "file_kind_folder"));
+            if (folderName.getValue().isBlank() || folderName.getValue().equals(label("program_default_name").getString()))
+                folderName.setValue(programModal ? label("program_default_name").getString() : "");
+        });
         closeModal();
         cachedView = null;
         requestedPageSize = -1;
@@ -155,6 +170,15 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
         errorUntil = 0;
     }
 
+    private void sendFile(StorageNetwork.FileAction action, int id, int target, String name) {
+        CompoundTag view = menu.view();
+        if (!view.getBoolean("ProgramsAvailable") || awaitingVolume || searching) return;
+        if (target < 0) { error = "cross_disk"; errorUntil = Util.getMillis() + 4500; return; }
+        StorageNetwork.request(new StorageNetwork.FileRequest(menu.containerId, view.getLong("Session"),
+                view.getLong("Revision"), view.getLong("ProgramRevision"), action, id, target, name));
+        errorUntil = 0;
+    }
+
     private void openSearch() {
         if (modal || awaitingVolume || awaitingSearchExit || !menu.view().getBoolean("Available") || menu.view().getBoolean("Locked")) return;
         if (searching) { setFocused(searchQuery); searchQuery.setFocused(true); return; }
@@ -162,7 +186,7 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
         querySeq = Math.max(querySeq, menu.view().getLong("QuerySeq")) + 1;
         catalog.clear(); pendingCatalog = null; catalogRevision = pendingCatalogRevision = -1;
         catalogLoading = true; appliedQuerySeq = -1; lastLocated = -1;
-        selected = -1; choosingTarget = dragging = false; dragCandidate = -1;
+        selected = selectedProgram = -1; choosingTarget = dragging = false; dragCandidate = -1;
         searchQuery.setValue(""); searchChangedAt = Util.getMillis();
         updateSearchWidgets(); setFocused(searchQuery); searchQuery.setFocused(true); quantity.setFocused(false);
         sendSearch(StorageNetwork.SearchAction.START, 0, layout.searchRows(), 0, 0, new int[0]);
@@ -184,7 +208,7 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
     private void resetSearch() {
         searching = false; catalogLoading = applyingSearch = awaitingSearchExit = false;
         catalog.clear(); pendingCatalog = null; catalogRevision = pendingCatalogRevision = -1;
-        selected = -1; choosingTarget = dragging = false; dragCandidate = -1;
+        selected = selectedProgram = -1; choosingTarget = dragging = false; dragCandidate = -1;
         appliedQuerySeq = -1; doubleClickEntry = -1;
         if (searchQuery != null) { searchQuery.setFocused(false); updateSearchWidgets(); }
         setFocused(null);
@@ -307,15 +331,16 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
             if (awaitingSearchExit) return;
             awaitSearchExit();
         }
-        if (choosingTarget && selected >= 0) {
-            send(Action.MOVE, selected, id, amount(), "");
+        if (choosingTarget && (selected >= 0 || selectedProgram >= 0)) {
+            if (selectedProgram >= 0) sendFile(StorageNetwork.FileAction.MOVE, selectedProgram, id, "");
+            else send(Action.MOVE, selected, id, amount(), "");
             choosingTarget = false;
         } else if (id < 0) {
             volumes.stream().filter(v -> v.id == id).findFirst().ifPresent(v -> send(Action.SELECT_VOLUME, 0, 0, 0, v.key));
-            selected = -1;
+            selected = selectedProgram = -1;
         } else {
             send(Action.OPEN, id, 0, 0, "");
-            selected = -1;
+            selected = selectedProgram = -1;
         }
         quantity.setFocused(false); setFocused(null);
     }
@@ -331,11 +356,12 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
         if (page < 0 || page >= menu.view().getInt("Pages")) return;
         if (searching) sendSearch(StorageNetwork.SearchAction.PAGE, page, layout.searchRows(), 0, 0, new int[0]);
         else send(Action.PAGE, 0, 0, page, "");
-        selected = -1; choosingTarget = false; dragCandidate = -1; dragging = false;
+        selected = selectedProgram = -1; choosingTarget = false; dragCandidate = -1; dragging = false;
     }
 
     private Folder folder(int id) { return folders.stream().filter(f -> f.id == id).findFirst().orElse(null); }
     private Entry selectedEntry() { return entries.stream().filter(e -> e.id == selected).findFirst().orElse(null); }
+    private ProgramFile selectedProgram() { return programs.stream().filter(p -> p.id == selectedProgram).findFirst().orElse(null); }
 
     private void refreshView() {
         if (cachedView == menu.view() && cachedSearching == searching && cachedSearchReady == searchReady()) return;
@@ -346,7 +372,7 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
             else awaitingSearchExit = false;
         }
         if (sessionChanged) {
-            selected = -1; choosingTarget = dragging = false; dragCandidate = -1; collapsed.clear();
+            selected = selectedProgram = -1; choosingTarget = dragging = false; dragCandidate = -1; collapsed.clear();
             if (modal) closeModal();
         }
         awaitingVolume = false;
@@ -380,7 +406,7 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
         folders = decodedFolders;
         boolean folderChanged = sessionChanged || lastFolder != current();
         if (folderChanged) {
-            lastFolder = current(); selected = -1; choosingTarget = false;
+            lastFolder = current(); selected = selectedProgram = -1; choosingTarget = false;
             Folder cursor = folder(current());
             for (int i = 0; cursor != null && i <= StorageInventory.MAX_DEPTH; i++) {
                 collapsed.remove(cursor.id);
@@ -398,16 +424,24 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
         List<Tile> page = new ArrayList<>();
         for (int id : searching || cachedView.getBoolean("Searching") ? new int[0] : cachedView.getIntArray("PageFolders")) {
             Folder f = folder(id);
-            if (f != null) page.add(new Tile(f, null));
+            if (f != null) page.add(new Tile(f, null, null));
+        }
+        List<ProgramFile> decodedPrograms = new ArrayList<>();
+        for (Tag tag : cachedView.getList("ProgramFiles", Tag.TAG_COMPOUND)) {
+            if (searching || cachedView.getBoolean("Searching")) break;
+            CompoundTag p = (CompoundTag) tag;
+            ProgramFile program = new ProgramFile(p.getInt("Id"), p.getInt("Folder"), p.getString("Name"),
+                    p.getBoolean("Configured"), p.getBoolean("Active"), p.getString("Machine"), p.getString("Status"));
+            decodedPrograms.add(program); page.add(new Tile(null, program, null));
         }
         for (Tag tag : cachedView.getList("Entries", Tag.TAG_COMPOUND)) {
             if (searching ? !searchReady() : cachedView.getBoolean("Searching")) break;
             CompoundTag e = (CompoundTag) tag;
             Entry entry = new Entry(e.getInt("Id"), e.contains("Folder") ? e.getInt("Folder") : current(),
                     ItemStack.of(e.getCompound("Stack")), e.getLong("Count"));
-            decoded.add(entry); page.add(new Tile(null, entry));
+            decoded.add(entry); page.add(new Tile(null, null, entry));
         }
-        entries = decoded; tiles = page;
+        entries = decoded; programs = decodedPrograms; tiles = page;
         if (doubleClickEntry >= 0 && entries.stream().noneMatch(e -> e.id == doubleClickEntry)) doubleClickEntry = -1;
         if (!searching && !cachedView.getBoolean("Searching") && cachedView.contains("Located")) {
             int located = cachedView.getInt("Located");
@@ -515,20 +549,26 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
     private void openModal(boolean rename) {
         modal = true; renaming = rename; choosingTarget = false; dragging = false; dragCandidate = -1;
         Folder current = folder(current());
-        folderName.setValue(rename && current != null ? current.name : "");
+        ProgramFile program = selectedProgram();
+        programModal = rename && program != null;
+        folderName.setValue(rename ? program != null ? program.name : current != null ? current.name : "" : "");
         folderName.visible = modalOk.visible = modalCancel.visible = true;
+        modalKind.visible = !rename && menu.view().getBoolean("ProgramsAvailable");
+        modalKind.setMessage(label("file_kind_folder"));
         setFocused(folderName); folderName.setFocused(true); quantity.setFocused(false);
     }
 
     private void closeModal() {
         modal = false;
-        folderName.visible = modalOk.visible = modalCancel.visible = false;
+        folderName.visible = modalOk.visible = modalCancel.visible = modalKind.visible = false;
         folderName.setFocused(false); setFocused(null);
     }
 
     private void submitModal() {
         if (!folderName.getValue().isBlank()) {
-            send(renaming ? current() == 0 ? Action.RENAME_DISK : Action.RENAME : Action.CREATE, 0, 0, 0, folderName.getValue());
+            if (programModal) sendFile(renaming ? StorageNetwork.FileAction.RENAME : StorageNetwork.FileAction.CREATE,
+                    renaming ? selectedProgram : 0, current(), folderName.getValue());
+            else send(renaming ? current() == 0 ? Action.RENAME_DISK : Action.RENAME : Action.CREATE, 0, 0, 0, folderName.getValue());
             closeModal();
         }
     }
@@ -562,21 +602,33 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
             if (searching) sendSearch(StorageNetwork.SearchAction.RESIZE, menu.view().getInt("Page"), desiredPageSize, 0, 0, new int[0]);
             else send(Action.RESIZE, 0, 0, desiredPageSize, "");
         }
-        if (selectedEntry() == null) { selected = -1; choosingTarget = false; }
+        if (selectedEntry() == null) selected = -1;
+        if (selectedProgram() == null) selectedProgram = -1;
+        if (selected < 0 && selectedProgram < 0) choosingTarget = false;
+        boolean fileSelected = selectedProgram >= 0;
         boolean writable = menu.view().getBoolean("Available") && !menu.view().getBoolean("Locked") && !awaitingVolume
                 && !awaitingSearchExit && (searching ? searchReady() : !menu.view().getBoolean("Searching"));
         updateSearchWidgets();
         create.active = writable && !modal && !searching;
-        rename.active = writable && (current() != 0 || !menu.view().getString("Volume").isEmpty()) && !modal && !searching;
-        delete.active = writable && current() != 0 && !modal && !searching;
+        rename.active = writable && (fileSelected || current() != 0 || !menu.view().getString("Volume").isEmpty()) && !modal && !searching;
+        delete.active = writable && (fileSelected || current() != 0) && !modal && !searching
+                && (!fileSelected || !selectedProgram().active);
         searchOpen.active = writable && !modal;
         searchScope.active = searchExit.active = !awaitingSearchExit && !modal;
         up.active = current() != 0 && !modal;
         previous.active = menu.view().getInt("Page") > 0 && !modal && (!searching || searchReady());
         next.active = menu.view().getInt("Page") + 1 < menu.view().getInt("Pages") && !modal && (!searching || searchReady());
-        withdraw.active = writable && selected >= 0 && amount() > 0 && !modal;
-        move.active = writable && selected >= 0 && (searching || amount() > 0) && !modal;
-        all.active = writable && selected >= 0 && !modal;
+        withdraw.active = writable && (fileSelected || selected >= 0 && amount() > 0) && !modal;
+        move.active = writable && (fileSelected || selected >= 0 && (searching || amount() > 0)) && !modal;
+        all.active = writable && (fileSelected || selected >= 0) && !modal;
+        quantity.setEditable(!fileSelected);
+        withdraw.setMessage(label(fileSelected ? "program_open" : "withdraw"));
+        withdraw.setTooltip(Tooltip.create(label(fileSelected ? "program_open_hint" : "withdraw_hint")));
+        all.setMessage(label(fileSelected ? "program_copy" : "all"));
+        all.setTooltip(Tooltip.create(label(fileSelected ? "program_copy_hint" : "all_hint")));
+        create.setMessage(label(menu.view().getBoolean("ProgramsAvailable") ? "file_new" : "new"));
+        rename.setTooltip(Tooltip.create(label(fileSelected ? "program_rename_hint" : "folder_rename_hint")));
+        delete.setTooltip(Tooltip.create(label(fileSelected ? "program_delete_hint" : "folder_delete_hint")));
         deposit.active = writable && !menu.getCarried().isEmpty() && !modal && !searching;
         deposit.setTooltip(Tooltip.create(label(searching ? "search_deposit_hint" : "deposit_hint")));
         move.setMessage(label(searching ? "locate" : choosingTarget ? "cancel_move" : "move"));
@@ -585,15 +637,17 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
             moveTooltipTarget = choosingTarget;
             move.setTooltip(Tooltip.create(label(choosingTarget ? "choose_target" : "move_hint")));
         } else if (!searching) move.setTooltip(Tooltip.create(label(choosingTarget ? "choose_target" : "move_hint")));
+        if (fileSelected) move.setTooltip(Tooltip.create(label(choosingTarget ? "choose_target" : "program_move_hint")));
         renderBackground(g);
         super.render(g, mouseX, mouseY, partialTick);
         if (modal) {
             g.pose().pushPose(); g.pose().translate(0, 0, 300);
             g.fill(leftPos, topPos, leftPos + imageWidth, topPos + imageHeight, 0x88000000);
             panel(g, layout.modalX(), layout.modalY(), 240, 80);
-            text(g, label(renaming ? "rename" : "new"), layout.modalX() + 12, layout.modalY() + 11, 216, TEXT);
+            text(g, label(renaming ? "rename" : "file_new"), layout.modalX() + 12, layout.modalY() + 11, modalKind.visible ? 72 : 216, TEXT);
             folderName.render(g, mouseX, mouseY, partialTick);
             modalOk.render(g, mouseX, mouseY, partialTick); modalCancel.render(g, mouseX, mouseY, partialTick);
+            if (modalKind.visible) modalKind.render(g, mouseX, mouseY, partialTick);
             g.pose().popPose();
         } else {
             renderError(g);
@@ -629,7 +683,15 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
                         }
                         g.renderTooltip(font, lines, java.util.Optional.empty(), mouseX, mouseY);
                     }
-                    else g.renderTooltip(font, Component.literal(tile.folder.name), mouseX, mouseY);
+                    else if (tile.program != null) {
+                        var lines = new ArrayList<Component>();
+                        lines.add(Component.literal(tile.program.name));
+                        lines.add(label("program_file"));
+                        if (!tile.program.status.isEmpty()) lines.add(Component.translatable("message.itemexplorer." + tile.program.status));
+                        else lines.add(label(tile.program.configured ? "program_configured" : "program_unconfigured"));
+                        lines.add(label("program_tile_hint"));
+                        g.renderTooltip(font, lines, java.util.Optional.empty(), mouseX, mouseY);
+                    } else g.renderTooltip(font, Component.literal(tile.folder.name), mouseX, mouseY);
                 }
                 Folder f = treeFolderAt(mouseX, mouseY);
                 if (f != null) {
@@ -681,6 +743,17 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
         g.fill(left + 1, top + 1, left + w / 2 - 1, top + 3, 0xffffdf88);
         g.fill(left + 1, top + 3, left + w - 1, top + h + 1, 0xffd7ae54);
         g.fill(left + 1, top + 3, left + w - 1, top + 4, 0xffffdf88);
+    }
+
+    private void programIcon(GuiGraphics g, int x, int y, boolean active) {
+        int left = leftPos + x, top = topPos + y;
+        g.fill(left, top, left + 16, top + 14, 0xff304c72);
+        g.fill(left + 1, top + 1, left + 15, top + 4, 0xff78a5d1);
+        g.fill(left + 1, top + 5, left + 15, top + 13, 0xffe3ebf3);
+        int color = active ? 0xff238543 : 0xff3d6393;
+        g.fill(left + 5, top + 6, left + 7, top + 12, color);
+        g.fill(left + 7, top + 7, left + 9, top + 11, color);
+        g.fill(left + 9, top + 8, left + 11, top + 10, color);
     }
 
     @Override
@@ -750,7 +823,7 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
             int x = layout.browserX() + (i % layout.columns()) * layout.cellWidth();
             int y = layout.browserY() + (i / layout.columns()) * 30;
             int w = layout.cellWidth() - 2;
-            boolean active = tile.entry != null && tile.entry.id == selected;
+            boolean active = tile.entry != null && tile.entry.id == selected || tile.program != null && tile.program.id == selectedProgram;
             int color = active ? 0xffdadada : hoveredTile == tile ? 0xffc1c1c1 : 0xffaaaaaa;
             if (tile.folder != null && hoveredTile == tile && (dragging || choosingTarget)) color = 0xffb8c7a1;
             g.fill(leftPos + x + 1, topPos + y + 1, leftPos + x + w, topPos + y + 29, color);
@@ -758,6 +831,10 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
             if (tile.folder != null) {
                 folderIcon(g, x + 5, y + 3, false);
                 text(g, Component.literal(tile.folder.name), x + 4, y + 20, w - 6, TEXT);
+            } else if (tile.program != null) {
+                programIcon(g, x + 5, y + 3, tile.program.active);
+                text(g, label(tile.program.active ? "program_active_badge" : "program_file_badge"), x + 24, y + 6, w - 25, MUTED);
+                text(g, Component.literal(tile.program.name), x + 4, y + 20, w - 6, TEXT);
             } else {
                 Entry e = tile.entry;
                 g.renderItem(e.stack, leftPos + x + 4, topPos + y + 2);
@@ -788,7 +865,8 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
     public boolean mouseClicked(double x, double y, int button) {
         if (awaitingVolume || awaitingSearchExit) return true;
         if (modal) {
-            if (modalOk.mouseClicked(x, y, button) || modalCancel.mouseClicked(x, y, button)) return true;
+            if (modalOk.mouseClicked(x, y, button) || modalCancel.mouseClicked(x, y, button)
+                    || modalKind.visible && modalKind.mouseClicked(x, y, button)) return true;
             folderName.mouseClicked(x, y, button); setFocused(folderName); return true;
         }
         Folder f = treeFolderAt(x, y);
@@ -810,8 +888,12 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
         if (tile != null) {
             if (tile.folder != null) {
                 if (button == 0) activateFolder(tile.folder.id);
+            } else if (tile.program != null && (button == 0 || button == 1)) {
+                selectedProgram = tile.program.id; selected = -1; choosingTarget = dragging = false; dragCandidate = -1;
+                quantity.setFocused(false); searchQuery.setFocused(false); setFocused(null);
+                if (button == 0) sendFile(StorageNetwork.FileAction.OPEN, selectedProgram, current(), "");
             } else if (button == 0 || button == 1) {
-                selected = tile.entry.id; quantity.setFocused(false); setFocused(null);
+                selected = tile.entry.id; selectedProgram = -1; quantity.setFocused(false); setFocused(null);
                 searchQuery.setFocused(false);
                 if (button == 1 || hasShiftDown()) { doubleClickEntry = -1; takeSelected(button == 1 ? 1 : 64); }
                 else if (searching) {

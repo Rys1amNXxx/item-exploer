@@ -1,0 +1,58 @@
+{
+  "parent": "minecraft:block/block",
+  "textures": {
+    "metal": "itemexplorer:block/hardware_metal",
+    "dark": "itemexplorer:block/hardware_dark",
+    "green": "minecraft:block/lime_concrete",
+    "purple": "minecraft:block/purple_concrete",
+    "socket": "itemexplorer:block/port_socket",
+    "particle": "#metal"
+  },
+  "elements": [
+    {
+      "from": [5, 5, 15],
+      "to": [11, 11, 16],
+      "faces": {
+        "north": { "texture": "#metal" },
+        "south": { "texture": "#metal" },
+        "east": { "texture": "#metal" },
+        "west": { "texture": "#metal" },
+        "up": { "texture": "#metal" },
+        "down": { "texture": "#metal" }
+      }
+    },
+    {
+      "from": [5, 5, 14.75],
+      "to": [11, 11, 15],
+      "faces": {
+        "north": { "texture": "#green" },
+        "east": { "texture": "#dark" },
+        "west": { "texture": "#dark" },
+        "up": { "texture": "#dark" },
+        "down": { "texture": "#dark" }
+      }
+    },
+    {
+      "from": [6.5, 6.5, 13.5],
+      "to": [9.5, 9.5, 14.75],
+      "faces": {
+        "north": { "texture": "#purple" },
+        "east": { "texture": "#purple" },
+        "west": { "texture": "#purple" },
+        "up": { "texture": "#purple" },
+        "down": { "texture": "#purple" }
+      }
+    },
+    {
+      "from": [7.25, 7.25, 0],
+      "to": [8.75, 8.75, 13.5],
+      "faces": {
+        "north": { "texture": "#socket", "uv": [0, 0, 16, 16] },
+        "east": { "texture": "#dark" },
+        "west": { "texture": "#dark" },
+        "up": { "texture": "#dark" },
+        "down": { "texture": "#dark" }
+      }
+    }
+  ]
+}

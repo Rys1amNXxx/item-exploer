@@ -1,0 +1,17 @@
+{
+  "parent": "minecraft:recipes/root",
+  "criteria": {
+    "has_comparator": {
+      "trigger": "minecraft:inventory_changed",
+      "conditions": {
+        "items": [{ "items": ["minecraft:comparator"] }]
+      }
+    },
+    "has_the_recipe": {
+      "trigger": "minecraft:recipe_unlocked",
+      "conditions": { "recipe": "itemexplorer:production_port" }
+    }
+  },
+  "requirements": [["has_comparator", "has_the_recipe"]],
+  "rewards": { "recipes": ["itemexplorer:production_port"] }
+}

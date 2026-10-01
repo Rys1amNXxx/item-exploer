@@ -5,6 +5,7 @@ import dev.itemexplorer.client.ClientEvents;
 import dev.itemexplorer.menu.StorageMenu;
 import dev.itemexplorer.menu.NasMenu;
 import dev.itemexplorer.menu.LogisticsPortMenu;
+import dev.itemexplorer.menu.ProductionPortMenu;
 import dev.itemexplorer.storage.StorageSearch;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.FriendlyByteBuf;
@@ -24,7 +25,7 @@ import java.util.Objects;
 import java.util.function.Supplier;
 
 public final class StorageNetwork {
-    private static final String VERSION = "8";
+    private static final String VERSION = "10";
     private static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
             ResourceLocation.fromNamespaceAndPath(ItemExplorer.MOD_ID, "storage"), () -> VERSION, VERSION::equals, VERSION::equals);
 
@@ -161,6 +162,59 @@ public final class StorageNetwork {
         }
     }
 
+    public enum FileAction { CREATE, OPEN, RENAME, DELETE, MOVE, COPY }
+    public record FileRequest(int menuId, long session, long revision, long programRevision,
+                              FileAction action, int id, int target, String name) {
+        public FileRequest { Objects.requireNonNull(action); Objects.requireNonNull(name); }
+        public static FileRequest decode(FriendlyByteBuf buf) {
+            return new FileRequest(buf.readVarInt(), buf.readLong(), buf.readLong(), buf.readLong(),
+                    buf.readEnum(FileAction.class), buf.readVarInt(), buf.readVarInt(), buf.readUtf(64));
+        }
+        public void encode(FriendlyByteBuf buf) {
+            buf.writeVarInt(menuId); buf.writeLong(session); buf.writeLong(revision); buf.writeLong(programRevision);
+            buf.writeEnum(action); buf.writeVarInt(id); buf.writeVarInt(target); buf.writeUtf(name, 64);
+        }
+        public void handle(Supplier<NetworkEvent.Context> context) {
+            context.get().enqueueWork(() -> {
+                ServerPlayer player = context.get().getSender();
+                if (player != null && player.containerMenu instanceof StorageMenu menu) menu.handleFile(this);
+            });
+            context.get().setPacketHandled(true);
+        }
+    }
+
+    public enum ProductionAction { SAVE, START, CANCEL, SELECT_MACHINE, BACK }
+    public record ProductionRequest(int menuId, long session, long context, long revision, ProductionAction action,
+                                    String name, int inputFolder, int fuelFolder, int outputFolder,
+                                    int inputEntry, int fuelEntry, int count, long machinePos) {
+        public ProductionRequest(int menuId, long session, long context, long revision, ProductionAction action,
+                                 String name, int inputFolder, int fuelFolder, int outputFolder, int inputEntry, int fuelEntry, int count) {
+            this(menuId, session, context, revision, action, name, inputFolder, fuelFolder, outputFolder, inputEntry, fuelEntry, count, 0);
+        }
+        public ProductionRequest {
+            Objects.requireNonNull(action); Objects.requireNonNull(name);
+            if (name.length() > 64) throw new IllegalArgumentException("Production name is too long");
+        }
+        public static ProductionRequest decode(FriendlyByteBuf buf) {
+            return new ProductionRequest(buf.readVarInt(), buf.readLong(), buf.readLong(), buf.readLong(),
+                    buf.readEnum(ProductionAction.class), buf.readUtf(64), buf.readVarInt(), buf.readVarInt(),
+                    buf.readVarInt(), buf.readVarInt(), buf.readVarInt(), buf.readVarInt(), buf.readLong());
+        }
+        public void encode(FriendlyByteBuf buf) {
+            buf.writeVarInt(menuId); buf.writeLong(session); buf.writeLong(context); buf.writeLong(revision);
+            buf.writeEnum(action); buf.writeUtf(name, 64); buf.writeVarInt(inputFolder); buf.writeVarInt(fuelFolder);
+            buf.writeVarInt(outputFolder); buf.writeVarInt(inputEntry); buf.writeVarInt(fuelEntry); buf.writeVarInt(count); buf.writeLong(machinePos);
+        }
+        public void handle(Supplier<NetworkEvent.Context> context) {
+            context.get().enqueueWork(() -> {
+                ServerPlayer player = context.get().getSender();
+                if (player != null && player.containerMenu instanceof ProductionPortMenu menu
+                        && menu.containerId == menuId && menu.stillValid(player)) menu.handle(this);
+            });
+            context.get().setPacketHandled(true);
+        }
+    }
+
     public record Snapshot(int menuId, CompoundTag view) {
         public static Snapshot decode(FriendlyByteBuf buf) {
             int id = buf.readVarInt();
@@ -190,12 +244,18 @@ public final class StorageNetwork {
                 Optional.of(NetworkDirection.PLAY_TO_SERVER));
         CHANNEL.registerMessage(5, SearchCatalog.class, SearchCatalog::encode, SearchCatalog::decode, SearchCatalog::handle,
                 Optional.of(NetworkDirection.PLAY_TO_CLIENT));
+        CHANNEL.registerMessage(6, ProductionRequest.class, ProductionRequest::encode, ProductionRequest::decode, ProductionRequest::handle,
+                Optional.of(NetworkDirection.PLAY_TO_SERVER));
+        CHANNEL.registerMessage(7, FileRequest.class, FileRequest::encode, FileRequest::decode, FileRequest::handle,
+                Optional.of(NetworkDirection.PLAY_TO_SERVER));
     }
 
     public static void request(Request request) { CHANNEL.sendToServer(request); }
     public static void request(NasRequest request) { CHANNEL.sendToServer(request); }
     public static void request(PortRequest request) { CHANNEL.sendToServer(request); }
     public static void request(SearchRequest request) { CHANNEL.sendToServer(request); }
+    public static void request(ProductionRequest request) { CHANNEL.sendToServer(request); }
+    public static void request(FileRequest request) { CHANNEL.sendToServer(request); }
     public static void searchCatalog(ServerPlayer player, SearchCatalog packet) {
         CHANNEL.send(PacketDistributor.PLAYER.with(() -> player), packet);
     }

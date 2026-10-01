@@ -1,0 +1,25 @@
+// Opt-in real-render acceptance in an explicitly disposable Production Probe world.
+// GameTest/client fixture classes are attached only to this invocation, never the release JAR.
+gradle.beforeProject { p -> p.afterEvaluate {
+    def probeDirectory = p.file('work/production-client')
+    def run = p.minecraft.runs.client
+    run.workingDirectory = probeDirectory
+    run.property 'itemexplorer.productionClientProbe', probeDirectory.absolutePath
+    run.jvmArgs '-Xms256m', '-Xmx1536m'
+    run.mods.itemexplorer.source p.sourceSets.gametest
+    run.args '--username', 'ProductionProbe', '--width', '640', '--height', '480', '--quickPlaySingleplayer', 'Production Probe'
+    p.tasks.matching { it.name == 'runClient' }.configureEach {
+        doFirst {
+            if (!new File(probeDirectory, 'saves/Production Probe/level.dat').isFile())
+                throw new GradleException('Prepare an isolated Production Probe world copy in work/production-client/saves with zh_cn options before this probe')
+            def result = new File(probeDirectory, 'result.txt')
+            if (result.exists() && (!result.isFile() || !result.delete()))
+                throw new GradleException('Could not clear the isolated production probe result.txt')
+        }
+        doLast {
+            def result = new File(probeDirectory, 'result.txt')
+            if (!result.isFile() || result.getText('UTF-8').trim() != 'PASS')
+                throw new GradleException('Production client acceptance failed or timed out; inspect work/production-client/report.txt')
+        }
+    }
+} }

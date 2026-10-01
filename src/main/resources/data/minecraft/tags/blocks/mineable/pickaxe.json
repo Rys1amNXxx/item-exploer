@@ -4,6 +4,7 @@
     "itemexplorer:storage_terminal",
     "itemexplorer:nas",
     "itemexplorer:logistics_port",
+    "itemexplorer:production_port",
     "#itemexplorer:base_station_parts"
   ]
 }

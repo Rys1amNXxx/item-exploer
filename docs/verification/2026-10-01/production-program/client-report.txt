@@ -1,0 +1,11 @@
+Production client acceptance
+START real client pid=33360 language=zh_cn
+PASS real Chinese input, stable folder/sample identities and SAVE round trip at GUI 320x240
+SCREENSHOT production-minimum-configured.png
+PASS START round trip and running control state
+SCREENSHOT production-minimum-running.png
+PASS real vanilla smelt completed; output=1, remaining ore=1, coal=0; saved ghost remains restartable
+SCREENSHOT production-854-completed.png
+PASS ghost-only restart on residual furnace heat; CANCEL preserves in-flight ore; no player transfer or refund
+SCREENSHOT production-854-cancelled.png
+PASS all checks; screenshots=4; GUI320x240 and427x240; real client+integrated server; ticks=244

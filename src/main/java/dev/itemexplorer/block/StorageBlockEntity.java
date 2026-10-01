@@ -3,6 +3,7 @@ package dev.itemexplorer.block;
 import com.mojang.logging.LogUtils;
 import dev.itemexplorer.ModContent;
 import dev.itemexplorer.menu.StorageMenu;
+import dev.itemexplorer.production.ProgramLibrary;
 import dev.itemexplorer.storage.StorageInventory;
 import dev.itemexplorer.storage.StorageRecovery;
 import net.minecraft.core.BlockPos;
@@ -23,27 +24,43 @@ import java.nio.file.Path;
 public final class StorageBlockEntity extends BlockEntity implements MenuProvider {
     private static final Logger LOGGER = LogUtils.getLogger();
     private final StorageInventory inventory = new StorageInventory(this::setChanged);
+    private final ProgramLibrary programs = new ProgramLibrary(inventory, this::setChanged);
     private final String accessSession = java.util.UUID.randomUUID().toString();
+    // Persisted separately from the transient menu session: replacing a terminal must not retarget a job.
+    private java.util.UUID productionIdentity = java.util.UUID.randomUUID();
+    private boolean productionIdentityNeedsSave = true;
     private Path recoveryArchive;
+    private Path programRecoveryArchive;
 
     public StorageBlockEntity(BlockPos pos, BlockState state) {
         super(ModContent.STORAGE_ENTITY.get(), pos, state);
     }
 
     public StorageInventory inventory() { return inventory; }
+    public ProgramLibrary programs() { return programs; }
     public String accessSession() { return accessSession; }
+    public java.util.UUID productionIdentity() {
+        if (productionIdentityNeedsSave) { setChanged(); productionIdentityNeedsSave = false; }
+        return productionIdentity;
+    }
 
     @Override
     protected void saveAdditional(CompoundTag tag) {
         super.saveAdditional(tag);
         tag.put("Storage", inventory.save());
+        tag.put("Programs", programs.save());
+        tag.putUUID("ProductionIdentity", productionIdentity);
     }
 
     @Override
     public void load(CompoundTag tag) {
         super.load(tag);
         inventory.load(tag.get("Storage"));
+        programs.load(tag.get("Programs"));
+        productionIdentity = tag.hasUUID("ProductionIdentity") ? tag.getUUID("ProductionIdentity") : java.util.UUID.randomUUID();
+        productionIdentityNeedsSave = !tag.hasUUID("ProductionIdentity");
         recoveryArchive = null;
+        programRecoveryArchive = null;
         archiveProtectedData();
     }
 
@@ -55,6 +72,12 @@ public final class StorageBlockEntity extends BlockEntity implements MenuProvide
 
     /** Retry before removal as well, so a successful archive outlives the block. */
     public void archiveProtectedData() {
+        if (programs.isLocked() && programRecoveryArchive == null && level != null && !level.isClientSide && level.getServer() != null) {
+            try {
+                programRecoveryArchive = StorageRecovery.archive(level.getServer().getWorldPath(LevelResource.ROOT).resolve("itemexplorer-recovery"),
+                        programs.save(), level.dimension().location().toString(), worldPosition.getX(), worldPosition.getY(), worldPosition.getZ(), "terminal_programs");
+            } catch (IOException | RuntimeException failure) { LOGGER.error("Cannot archive terminal programs at {}", worldPosition, failure); }
+        }
         if (!inventory.isLocked() || recoveryArchive != null || level == null || level.isClientSide || level.getServer() == null) return;
         try {
             recoveryArchive = StorageRecovery.archive(level.getServer().getWorldPath(LevelResource.ROOT).resolve("itemexplorer-recovery"),
