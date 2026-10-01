@@ -18,6 +18,7 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.locale.Language;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.ItemStack;
 import org.lwjgl.glfw.GLFW;
@@ -32,6 +33,7 @@ import java.util.Set;
 
 public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
     private static final int TEXT = 0xff303030, MUTED = 0xff505050;
+    private static final ResourceLocation CRAFTING_TEXTURE = ResourceLocation.fromNamespaceAndPath("minecraft", "textures/gui/container/crafting_table.png");
     private static final Set<String> QUIET_MESSAGES = Set.of("", "created", "renamed", "deleted", "moved",
             "deposited", "withdrawn", "no_change");
     private record Folder(int id, int parent, String name, int depth) {}
@@ -71,7 +73,6 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
     private int requestedPageSize = -1;
     private long resizeRequestedAt, errorUntil;
     private String error = "";
-    private boolean moveTooltipTarget;
 
     public StorageScreen(StorageMenu menu, Inventory inventory, Component title) {
         super(menu, inventory, title);
@@ -93,7 +94,7 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
         super.init();
         clearDraggingState();
         dragging = false; dragCandidate = -1; choosingTarget = false;
-        menu.arrangeClientSlots(layout.inventoryX(), layout.inventoryY());
+        menu.arrangeClientSlots(layout);
         create = button(8, 23, 48, "new", b -> openModal(false));
         rename = button(60, 23, 42, "rename", b -> openModal(true));
         delete = button(106, 23, 42, "delete", b -> {
@@ -137,11 +138,6 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
             Entry e = selectedEntry(); if (e != null) quantity.setValue(Long.toString(e.count));
         });
         deposit = button(x + 240, y, 64, "deposit", b -> send(Action.DEPOSIT_CURSOR, 0, 0, 0, ""));
-        withdraw.setTooltip(Tooltip.create(label("withdraw_hint")));
-        move.setTooltip(Tooltip.create(label("move_hint")));
-        moveTooltipTarget = false;
-        all.setTooltip(Tooltip.create(label("all_hint")));
-        deposit.setTooltip(Tooltip.create(label("deposit_hint")));
         int mx = layout.modalX(), my = layout.modalY();
         folderName = addRenderableWidget(new EditBox(font, leftPos + mx + 12, topPos + my + 26, 216, 18, label("folder_name")));
         folderName.setMaxLength(StorageInventory.MAX_NAME);
@@ -613,6 +609,7 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
         rename.active = writable && (fileSelected || current() != 0 || !menu.view().getString("Volume").isEmpty()) && !modal && !searching;
         delete.active = writable && (fileSelected || current() != 0) && !modal && !searching
                 && (!fileSelected || !selectedProgram().active);
+        delete.setTooltip(fileSelected && selectedProgram().active ? Tooltip.create(label("program_delete_hint")) : null);
         searchOpen.active = writable && !modal;
         searchScope.active = searchExit.active = !awaitingSearchExit && !modal;
         up.active = current() != 0 && !modal;
@@ -623,21 +620,12 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
         all.active = writable && (fileSelected || selected >= 0) && !modal;
         quantity.setEditable(!fileSelected);
         withdraw.setMessage(label(fileSelected ? "program_open" : "withdraw"));
-        withdraw.setTooltip(Tooltip.create(label(fileSelected ? "program_open_hint" : "withdraw_hint")));
         all.setMessage(label(fileSelected ? "program_copy" : "all"));
-        all.setTooltip(Tooltip.create(label(fileSelected ? "program_copy_hint" : "all_hint")));
         create.setMessage(label(menu.view().getBoolean("ProgramsAvailable") ? "file_new" : "new"));
-        rename.setTooltip(Tooltip.create(label(fileSelected ? "program_rename_hint" : "folder_rename_hint")));
-        delete.setTooltip(Tooltip.create(label(fileSelected ? "program_delete_hint" : "folder_delete_hint")));
         deposit.active = writable && !menu.getCarried().isEmpty() && !modal && !searching;
-        deposit.setTooltip(Tooltip.create(label(searching ? "search_deposit_hint" : "deposit_hint")));
+        deposit.setTooltip(searching ? Tooltip.create(label("search_deposit_hint")) : null);
         move.setMessage(label(searching ? "locate" : choosingTarget ? "cancel_move" : "move"));
-        if (searching) move.setTooltip(Tooltip.create(label("locate_hint")));
-        if (!searching && (moveTooltipTarget != choosingTarget || moveTooltipTarget)) {
-            moveTooltipTarget = choosingTarget;
-            move.setTooltip(Tooltip.create(label(choosingTarget ? "choose_target" : "move_hint")));
-        } else if (!searching) move.setTooltip(Tooltip.create(label(choosingTarget ? "choose_target" : "move_hint")));
-        if (fileSelected) move.setTooltip(Tooltip.create(label(choosingTarget ? "choose_target" : "program_move_hint")));
+        move.setTooltip(!searching && choosingTarget ? Tooltip.create(label("choose_target")) : null);
         renderBackground(g);
         super.render(g, mouseX, mouseY, partialTick);
         if (modal) {
@@ -668,8 +656,6 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
                         var station = menu.cable().controller();
                         lines.add(Component.translatable("gui.itemexplorer.cable_station", station.getX(), station.getY(), station.getZ()));
                     }
-                    lines.add(label("cable_terminal_hint"));
-                    lines.add(label("cable_local_only"));
                     g.renderTooltip(font, lines, java.util.Optional.empty(), mouseX, mouseY);
                 }
                 Tile tile = tileAt(mouseX, mouseY);
@@ -679,7 +665,6 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
                         lines.add(Component.translatable("gui.itemexplorer.exact_count", tile.entry.count));
                         if (searching) {
                             lines.add(Component.translatable("gui.itemexplorer.search_source", entryPath(tile.entry)));
-                            lines.add(label("search_result_hint"));
                         }
                         g.renderTooltip(font, lines, java.util.Optional.empty(), mouseX, mouseY);
                     }
@@ -689,7 +674,6 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
                         lines.add(label("program_file"));
                         if (!tile.program.status.isEmpty()) lines.add(Component.translatable("message.itemexplorer." + tile.program.status));
                         else lines.add(label(tile.program.configured ? "program_configured" : "program_unconfigured"));
-                        lines.add(label("program_tile_hint"));
                         g.renderTooltip(font, lines, java.util.Optional.empty(), mouseX, mouseY);
                     } else g.renderTooltip(font, Component.literal(tile.folder.name), mouseX, mouseY);
                 }
@@ -704,7 +688,8 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
                 if (crumb != null) g.renderTooltip(font, Component.literal(crumb.name), mouseX, mouseY);
                 if (inside(mouseX, mouseY, imageWidth - 120, 5, 110, 15) && menu.view().getBoolean("Available"))
                     g.renderTooltip(font, Component.translatable("gui.itemexplorer.exact_capacity", menu.view().getLong("Total"), menu.view().getLong("Capacity")), mouseX, mouseY);
-                if (quantity.isMouseOver(mouseX, mouseY)) g.renderTooltip(font, Component.literal(quantity.getValue()), mouseX, mouseY);
+                if (quantity.isMouseOver(mouseX, mouseY) && font.width(quantity.getValue()) > quantity.getWidth() - 8)
+                    g.renderTooltip(font, Component.literal(quantity.getValue()), mouseX, mouseY);
                 if (searching && searchQuery.isMouseOver(mouseX, mouseY))
                     g.renderTooltip(font, label("search_matching_hint"), mouseX, mouseY);
             }
@@ -845,7 +830,14 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
         if (tiles.isEmpty()) text(g, label(searching ? searchReady() ? "search_empty" : "search_loading" : "empty"),
                 layout.browserX() + 12, layout.browserY() + 12, layout.browserWidth() - 24, TEXT);
         text(g, label("quantity"), layout.controlsX(), layout.controlsY() + 5, 26, TEXT);
-        for (var slot : menu.slots) recess(g, slot.x, slot.y, 16, 16);
+        text(g, label("crafting"), layout.craftingX(), layout.inventoryY() + 3, 104, TEXT);
+        // Preserve the vanilla arrow spacing and larger result-slot frame relative to the 3x3 grid.
+        g.blit(CRAFTING_TEXTURE, leftPos + layout.craftingX() + 60, topPos + layout.craftingResultY(),
+                90, 35, 22, 15);
+        g.blit(CRAFTING_TEXTURE, leftPos + layout.craftingResultX() - 5, topPos + layout.craftingResultY() - 5,
+                119, 30, 26, 26);
+        for (var slot : menu.slots)
+            if (slot.index != StorageMenu.CRAFT_RESULT_SLOT) recess(g, slot.x, slot.y, 16, 16);
     }
 
     private void renderError(GuiGraphics g) {
@@ -922,7 +914,8 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
 
     @Override protected void slotClicked(net.minecraft.world.inventory.Slot slot, int slotId, int button, net.minecraft.world.inventory.ClickType type) {
         if (awaitingVolume) return;
-        if (type == net.minecraft.world.inventory.ClickType.QUICK_MOVE && slot != null) {
+        if (type == net.minecraft.world.inventory.ClickType.QUICK_MOVE && slot != null
+                && slotId >= 0 && slotId < StorageMenu.PLAYER_SLOT_COUNT) {
             if (!searching && !menu.view().getBoolean("Searching")) send(Action.DEPOSIT_SLOT, slotId, 0, 0, "");
         } else super.slotClicked(slot, slotId, button, type);
     }

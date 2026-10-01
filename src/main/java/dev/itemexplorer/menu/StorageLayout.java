@@ -7,7 +7,11 @@ public record StorageLayout(int width, int height) {
                 Math.max(234, Math.min(340, screenHeight - 12)));
     }
 
-    public int inventoryX() { return (width - 162) / 2; }
+    public int craftingX() { return (width - 290) / 2; }
+    public int craftingY() { return inventoryY() + 18; }
+    public int craftingResultX() { return craftingX() + 94; }
+    public int craftingResultY() { return craftingY() + 18; }
+    public int inventoryX() { return craftingX() + 128; }
     public int inventoryY() { return height - 84; }
     public int controlsY() { return inventoryY() - 25; }
     public int controlsX() { return (width - 304) / 2; }

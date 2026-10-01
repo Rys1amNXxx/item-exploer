@@ -18,12 +18,20 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.network.protocol.game.ClientboundContainerSetSlotPacket;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.Container;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.AbstractContainerMenu;
+import net.minecraft.world.inventory.ClickType;
+import net.minecraft.world.inventory.CraftingContainer;
+import net.minecraft.world.inventory.ResultContainer;
+import net.minecraft.world.inventory.ResultSlot;
 import net.minecraft.world.inventory.Slot;
+import net.minecraft.world.inventory.TransientCraftingContainer;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.crafting.RecipeType;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -35,6 +43,11 @@ import java.util.Set;
 
 public final class StorageMenu extends AbstractContainerMenu {
     public static final int WIDTH = 320, HEIGHT = 234;
+    // Keep the existing player slot IDs stable for contextual storage requests.
+    public static final int PLAYER_SLOT_COUNT = 36, CRAFT_RESULT_SLOT = 36,
+            CRAFT_GRID_START = 37, CRAFT_GRID_END = 46;
+    private final CraftingContainer craftSlots = new TransientCraftingContainer(this, 3, 3);
+    private final ResultContainer craftResult = new ResultContainer();
     private final BlockPos pos;
     private final StorageBlockEntity blockEntity;
     private final Player player;
@@ -67,6 +80,10 @@ public final class StorageMenu extends AbstractContainerMenu {
         for (int row = 0; row < 3; row++) for (int col = 0; col < 9; col++)
             addSlot(new Slot(inventory, 9 + row * 9 + col, 79 + col * 18, 154 + row * 18));
         for (int col = 0; col < 9; col++) addSlot(new Slot(inventory, col, 79 + col * 18, 212));
+        StorageLayout layout = new StorageLayout(WIDTH, HEIGHT);
+        addSlot(new ResultSlot(player, craftSlots, craftResult, 0, layout.craftingResultX(), layout.craftingResultY()));
+        for (int row = 0; row < 3; row++) for (int col = 0; col < 3; col++)
+            addSlot(new Slot(craftSlots, row * 3 + col, layout.craftingX() + col * 18, layout.craftingY() + row * 18));
     }
     public CompoundTag view() { return clientView; }
     public void acceptView(CompoundTag view) { clientView = view.copy(); }
@@ -83,12 +100,45 @@ public final class StorageMenu extends AbstractContainerMenu {
     public long session() { refreshMount(); return session; }
     public void arrangeClientSlots(int x, int y) {
         if (blockEntity != null) return;
-        for (int i = 0; i < slots.size(); i++) {
+        for (int i = 0; i < PLAYER_SLOT_COUNT; i++) {
             Slot previous = slots.get(i);
             Slot replacement = new Slot(previous.container, previous.getContainerSlot(),
                     x + (i % 9) * 18, y + (i < 27 ? i / 9 * 18 : 58));
             replacement.index = previous.index; slots.set(i, replacement);
         }
+    }
+    public void arrangeClientSlots(StorageLayout layout) {
+        if (blockEntity != null) return;
+        arrangeClientSlots(layout.inventoryX(), layout.inventoryY());
+        replaceClientSlot(CRAFT_RESULT_SLOT, new ResultSlot(player, craftSlots, craftResult, 0,
+                layout.craftingResultX(), layout.craftingResultY()));
+        for (int i = 0; i < 9; i++) replaceClientSlot(CRAFT_GRID_START + i,
+                new Slot(craftSlots, i, layout.craftingX() + i % 3 * 18, layout.craftingY() + i / 3 * 18));
+    }
+    private void replaceClientSlot(int index, Slot slot) {
+        slot.index = index;
+        slots.set(index, slot);
+    }
+    @Override public void slotsChanged(Container container) {
+        if (closed || !(player instanceof ServerPlayer serverPlayer)) return;
+        ItemStack result = ItemStack.EMPTY;
+        var recipe = player.level().getRecipeManager().getRecipeFor(RecipeType.CRAFTING, craftSlots, player.level());
+        if (recipe.isPresent() && craftResult.setRecipeUsed(player.level(), serverPlayer, recipe.get())) {
+            ItemStack assembled = recipe.get().assemble(craftSlots, player.level().registryAccess());
+            if (assembled.isItemEnabled(player.level().enabledFeatures())) result = assembled;
+        }
+        // Vanilla CraftingMenu hardcodes result slot 0; this menu appends its result after the player slots.
+        craftResult.setItem(0, result);
+        setRemoteSlot(CRAFT_RESULT_SLOT, result);
+        serverPlayer.connection.send(new ClientboundContainerSetSlotPacket(containerId, incrementStateId(), CRAFT_RESULT_SLOT, result));
+    }
+    @Override public void clicked(int slotId, int button, ClickType type, Player player) {
+        if (closed || player != this.player || (!player.level().isClientSide && !stillValid(player))) return;
+        if (slotId >= slots.size() || (slotId < 0 && slotId != -1 && slotId != -999)) return;
+        super.clicked(slotId, button, type, player);
+    }
+    @Override public boolean canTakeItemForPickAll(ItemStack stack, Slot slot) {
+        return slot.container != craftResult && super.canTakeItemForPickAll(stack, slot);
     }
     @Override public boolean stillValid(Player player) {
         if (blockEntity == null) return player.level().isClientSide;
@@ -234,11 +284,26 @@ public final class StorageMenu extends AbstractContainerMenu {
         if (blockEntity != null && stillValid(player)) sync(false);
     }
     @Override public ItemStack quickMoveStack(Player player, int index) {
-        // Terminal shift deposits use the contextual protocol, including disk and mount session.
-        return ItemStack.EMPTY;
+        // Player shift deposits still use the contextual protocol, including disk and mount session.
+        if (closed || player != this.player || !stillValid(player)
+                || index < CRAFT_RESULT_SLOT || index >= CRAFT_GRID_END) return ItemStack.EMPTY;
+        Slot slot = slots.get(index);
+        if (!slot.hasItem()) return ItemStack.EMPTY;
+        ItemStack source = slot.getItem(), original = source.copy();
+        if (index == CRAFT_RESULT_SLOT) {
+            source.getItem().onCraftedBy(source, player.level(), player);
+            if (!moveItemStackTo(source, 0, PLAYER_SLOT_COUNT, true)) return ItemStack.EMPTY;
+            slot.onQuickCraft(source, original);
+        } else if (!moveItemStackTo(source, 0, PLAYER_SLOT_COUNT, false)) return ItemStack.EMPTY;
+        if (source.isEmpty()) slot.setByPlayer(ItemStack.EMPTY);
+        else slot.setChanged();
+        if (source.getCount() == original.getCount()) return ItemStack.EMPTY;
+        slot.onTake(player, source);
+        if (index == CRAFT_RESULT_SLOT) player.drop(source, false);
+        return original;
     }
     private void depositSlot(StorageAccess storage, int index) {
-        if (index < 0 || index >= slots.size()) throw new IllegalArgumentException("missing_item");
+        if (index < 0 || index >= PLAYER_SLOT_COUNT) throw new IllegalArgumentException("missing_item");
         Slot slot = slots.get(index); ItemStack source = slot.getItem();
         int count = storage.insert(source, source.getCount(), currentFolder);
         if (count == 0) { message = "full"; return; }
@@ -478,5 +543,12 @@ public final class StorageMenu extends AbstractContainerMenu {
 
     private static int searchPageSize(int requested) { return Math.max(1, Math.min(StorageInventory.MAX_PAGE_SIZE, requested)); }
 
-    @Override public void removed(Player player) { closed = true; exitSearch(false); super.removed(player); }
+    @Override public void removed(Player player) {
+        if (closed) return;
+        closed = true; exitSearch(false); super.removed(player);
+        if (!player.level().isClientSide) {
+            clearContainer(player, craftSlots);
+            craftResult.clearContent();
+        }
+    }
 }
