@@ -17,10 +17,19 @@ import net.minecraft.world.level.block.state.BlockState;
 
 import java.util.List;
 
-/** No inventory, power, or network identity is created by this structural controller. */
+/** Structural controller and opt-in public wireless access. The controller never buffers items. */
 public final class BaseStationBlockEntity extends BlockEntity implements MenuProvider {
     private BaseStationStructure.Result validation;
     private boolean pendingRefresh = true;
+    private boolean networkOnline;
+    private long nextTransferTick = Long.MIN_VALUE;
+
+    public boolean networkOnline() { return networkOnline; }
+    public void setNetworkOnline(boolean value) {
+        if (networkOnline != value) { networkOnline = value; setChanged(); }
+    }
+    public boolean transferReady(long now) { return now >= nextTransferTick; }
+    public void recordTransfer(long now) { nextTransferTick = now + dev.itemexplorer.transfer.RemoteTransfers.COOLDOWN_TICKS; }
 
     public BaseStationBlockEntity(BlockPos pos, BlockState state) {
         super(ModContent.BASE_STATION_ENTITY.get(), pos, state);
@@ -56,8 +65,14 @@ public final class BaseStationBlockEntity extends BlockEntity implements MenuPro
     }
     @Override public void load(CompoundTag tag) {
         super.load(tag);
+        networkOnline = tag.contains("NetworkOnline", net.minecraft.nbt.Tag.TAG_BYTE) && tag.getByte("NetworkOnline") == 1;
+        nextTransferTick = Long.MIN_VALUE;
         validation = unchecked();
         pendingRefresh = true;
+    }
+    @Override protected void saveAdditional(CompoundTag tag) {
+        super.saveAdditional(tag);
+        tag.putBoolean("NetworkOnline", networkOnline);
     }
     @Override public Component getDisplayName() { return Component.translatable("block.itemexplorer.base_station_controller"); }
     @Override public AbstractContainerMenu createMenu(int id, Inventory inventory, Player player) { return new BaseStationMenu(id, inventory, this); }

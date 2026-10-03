@@ -4,6 +4,9 @@ import dev.itemexplorer.ModContent;
 import dev.itemexplorer.block.BaseStationBlockEntity;
 import dev.itemexplorer.block.BaseStationControllerBlock;
 import dev.itemexplorer.station.BaseStationStructure;
+import dev.itemexplorer.network.StorageNetwork;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.network.FriendlyByteBuf;
@@ -17,13 +20,16 @@ import net.minecraft.world.item.ItemStack;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Read-only structure diagnostics. No inventory or transfer authority is exposed. */
+/** On-site structure diagnostics and an explicit station network switch. */
 public final class BaseStationMenu extends AbstractContainerMenu {
     private static final int DATA_SIZE = 3 + BaseStationStructure.TOTAL_PARTS;
     private final BaseStationBlockEntity station;
     private final Player owner;
     private final BlockPos pos;
     private final ContainerData data;
+    private final long session = MenuSession.next();
+    private long networkActionTick = Long.MIN_VALUE;
+    private CompoundTag networkView = new CompoundTag(), sentNetworkView;
     private final CableConnectionData cable = new CableConnectionData();
     public CableConnectionData cable() { return cable; }
 
@@ -61,9 +67,31 @@ public final class BaseStationMenu extends AbstractContainerMenu {
     }
 
     public boolean ready() { return data.get(0) != 0; }
+    public CompoundTag networkView() { return networkView; }
+    public void acceptView(CompoundTag view) { networkView = view.copy(); }
+    public boolean networkOnline() { return networkView.getBoolean("NetworkOnline"); }
+    public void handleNetwork(StorageNetwork.StationNetworkRequest request) {
+        if (station == null || request.menuId() != containerId || !stillValid(owner)) return;
+        long tick = owner.level().getGameTime();
+        if (request.session() != session || networkActionTick == tick) return;
+        networkActionTick = tick;
+        station.refreshStructure();
+        if (request.expectedOnline() == station.networkOnline() && (!request.online() || station.validation().complete()))
+            station.setNetworkOnline(request.online());
+        syncNetwork(true);
+    }
+    private void syncNetwork(boolean force) {
+        if (station == null || !(owner instanceof ServerPlayer player)) return;
+        CompoundTag view = new CompoundTag();
+        view.putLong("Session", session); view.putBoolean("NetworkOnline", station.networkOnline());
+        if (force || !view.equals(sentNetworkView)) {
+            StorageNetwork.snapshot(player, containerId, view); sentNetworkView = view;
+        }
+    }
     @Override public void broadcastChanges() {
         if (station != null && stillValid(owner)) cable.refresh(owner.level(), pos, true);
         super.broadcastChanges();
+        if (station != null && stillValid(owner)) syncNetwork(false);
     }
     public int matched() { return data.get(1); }
     public boolean complete() { return ready() && matched() == BaseStationStructure.TOTAL_PARTS; }

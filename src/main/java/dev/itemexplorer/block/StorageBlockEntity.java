@@ -28,6 +28,7 @@ public final class StorageBlockEntity extends BlockEntity implements MenuProvide
     private final String accessSession = java.util.UUID.randomUUID().toString();
     // Persisted separately from the transient menu session: replacing a terminal must not retarget a job.
     private java.util.UUID productionIdentity = java.util.UUID.randomUUID();
+    private final dev.itemexplorer.transfer.TransferConfig transferConfig = new dev.itemexplorer.transfer.TransferConfig();
     private boolean productionIdentityNeedsSave = true;
     private Path recoveryArchive;
     private Path programRecoveryArchive;
@@ -39,6 +40,7 @@ public final class StorageBlockEntity extends BlockEntity implements MenuProvide
     public StorageInventory inventory() { return inventory; }
     public ProgramLibrary programs() { return programs; }
     public String accessSession() { return accessSession; }
+    public dev.itemexplorer.transfer.TransferConfig transferConfig() { return transferConfig; }
     public java.util.UUID productionIdentity() {
         if (productionIdentityNeedsSave) { setChanged(); productionIdentityNeedsSave = false; }
         return productionIdentity;
@@ -50,6 +52,7 @@ public final class StorageBlockEntity extends BlockEntity implements MenuProvide
         tag.put("Storage", inventory.save());
         tag.put("Programs", programs.save());
         tag.putUUID("ProductionIdentity", productionIdentity);
+        tag.put("RemoteReceiver", transferConfig.save());
     }
 
     @Override
@@ -59,6 +62,7 @@ public final class StorageBlockEntity extends BlockEntity implements MenuProvide
         programs.load(tag.get("Programs"));
         productionIdentity = tag.hasUUID("ProductionIdentity") ? tag.getUUID("ProductionIdentity") : java.util.UUID.randomUUID();
         productionIdentityNeedsSave = !tag.hasUUID("ProductionIdentity");
+        transferConfig.load(tag.get("RemoteReceiver"));
         recoveryArchive = null;
         programRecoveryArchive = null;
         archiveProtectedData();
@@ -68,6 +72,12 @@ public final class StorageBlockEntity extends BlockEntity implements MenuProvide
     public void onLoad() {
         super.onLoad();
         archiveProtectedData();
+        dev.itemexplorer.transfer.RemoteTransfers.register(this);
+    }
+
+    @Override public void setRemoved() {
+        dev.itemexplorer.transfer.RemoteTransfers.unregister(this);
+        super.setRemoved();
     }
 
     /** Retry before removal as well, so a successful archive outlives the block. */

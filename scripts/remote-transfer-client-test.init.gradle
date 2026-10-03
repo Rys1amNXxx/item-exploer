@@ -1,0 +1,29 @@
+// Opt-in real-client acceptance, isolated from release sources and user worlds.
+gradle.beforeProject { p -> p.afterEvaluate {
+    p.sourceSets.create('remoteClientTest') {
+        java.srcDir 'src/remoteClientTest/java'
+        compileClasspath += p.sourceSets.main.output + p.sourceSets.main.compileClasspath
+        runtimeClasspath += output + compileClasspath
+    }
+    def probeDirectory = p.file('work/remote-transfer-client')
+    def run = p.minecraft.runs.client
+    run.workingDirectory = probeDirectory
+    run.property 'itemexplorer.remoteClientProbe', probeDirectory.absolutePath
+    run.jvmArgs '-Xms256m', '-Xmx1536m'
+    run.mods.itemexplorer.source p.sourceSets.remoteClientTest
+    run.args '--username', 'RemoteProbe', '--width', '960', '--height', '720', '--quickPlaySingleplayer', 'Base Station Probe'
+    p.tasks.matching { it.name == 'runClient' }.configureEach {
+        doFirst {
+            if (!new File(probeDirectory, 'saves/Base Station Probe/level.dat').isFile())
+                throw new GradleException('Prepare an isolated Base Station Probe world copy in work/remote-transfer-client/saves first')
+            def result = new File(probeDirectory, 'result.txt')
+            if (result.exists() && (!result.isFile() || !result.delete()))
+                throw new GradleException('Could not clear the isolated remote transfer result.txt')
+        }
+        doLast {
+            def result = new File(probeDirectory, 'result.txt')
+            if (!result.isFile() || result.getText('UTF-8').trim() != 'PASS')
+                throw new GradleException('Remote transfer client acceptance failed; inspect work/remote-transfer-client/report.txt')
+        }
+    }
+} }

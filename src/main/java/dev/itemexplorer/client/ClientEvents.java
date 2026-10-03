@@ -6,6 +6,7 @@ import dev.itemexplorer.menu.StorageMenu;
 import dev.itemexplorer.menu.NasMenu;
 import dev.itemexplorer.menu.LogisticsPortMenu;
 import dev.itemexplorer.menu.ProductionPortMenu;
+import dev.itemexplorer.menu.BaseStationMenu;
 import dev.itemexplorer.network.StorageNetwork;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.MenuScreens;
@@ -42,12 +43,17 @@ public final class ClientEvents {
     public static void receive(StorageNetwork.Snapshot snapshot) {
         Minecraft minecraft = Minecraft.getInstance();
         if (minecraft.player != null && minecraft.player.containerMenu instanceof StorageMenu menu
-                && menu.containerId == snapshot.menuId()) menu.acceptView(snapshot.view());
+                && menu.containerId == snapshot.menuId()) {
+            menu.acceptView(snapshot.view());
+            if (minecraft.screen instanceof RemoteTransferScreen screen) screen.acceptSnapshot(menu);
+        }
         if (minecraft.player != null && minecraft.player.containerMenu instanceof NasMenu menu
                 && menu.containerId == snapshot.menuId()) menu.acceptView(snapshot.view());
         if (minecraft.player != null && minecraft.player.containerMenu instanceof LogisticsPortMenu menu
                 && menu.containerId == snapshot.menuId()) menu.acceptView(snapshot.view());
         if (minecraft.player != null && minecraft.player.containerMenu instanceof ProductionPortMenu menu
+                && menu.containerId == snapshot.menuId()) menu.acceptView(snapshot.view());
+        if (minecraft.player != null && minecraft.player.containerMenu instanceof BaseStationMenu menu
                 && menu.containerId == snapshot.menuId()) menu.acceptView(snapshot.view());
     }
 

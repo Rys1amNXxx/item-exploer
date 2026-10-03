@@ -49,7 +49,7 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
     private StorageLayout layout;
     private EditBox quantity, folderName, searchQuery;
     private Button create, rename, delete, up, previous, next, withdraw, move, all, deposit, modalOk, modalCancel;
-    private Button searchOpen, searchScope, searchExit, modalKind;
+    private Button searchOpen, searchScope, searchExit, modalKind, remoteOpen;
     private boolean searching, searchRecursive, catalogLoading, applyingSearch, awaitingSearchExit;
     private CompoundTag searchTransitionView;
     private long searchSession, querySeq, catalogRevision = -1, pendingCatalogRevision = -1, searchChangedAt;
@@ -73,6 +73,7 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
     private int requestedPageSize = -1;
     private long resizeRequestedAt, errorUntil;
     private String error = "";
+    private boolean openingRemoteScreen;
 
     public StorageScreen(StorageMenu menu, Inventory inventory, Component title) {
         super(menu, inventory, title);
@@ -95,6 +96,14 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
         clearDraggingState();
         dragging = false; dragCandidate = -1; choosingTarget = false;
         menu.arrangeClientSlots(layout);
+        remoteOpen = button(imageWidth - 194, 4, 74, "transfer_open", b -> {
+            Entry entry = selectedEntry();
+            openingRemoteScreen = true;
+            try {
+                minecraft.setScreen(new RemoteTransferScreen(this, menu, entry == null ? -1 : entry.id,
+                        entry == null ? ItemStack.EMPTY : entry.stack, Math.min(64, Math.max(1, amount()))));
+            } finally { openingRemoteScreen = false; }
+        });
         create = button(8, 23, 48, "new", b -> openModal(false));
         rename = button(60, 23, 42, "rename", b -> openModal(true));
         delete = button(106, 23, 42, "delete", b -> {
@@ -164,6 +173,11 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
         StorageNetwork.request(new StorageNetwork.Request(menu.containerId, menu.view().getLong("Revision"), action, id, target, amount, text, menu.view().getLong("Session")));
         if (action == Action.SELECT_VOLUME) { awaitingVolume = true; volumeRequestedAt = Util.getMillis(); }
         errorUntil = 0;
+    }
+
+    @Override public void removed() {
+        // The child screen keeps this exact container open and returns to it on Escape/Back.
+        if (!openingRemoteScreen) super.removed();
     }
 
     private void sendFile(StorageNetwork.FileAction action, int id, int target, String name) {
@@ -611,6 +625,11 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
                 && (!fileSelected || !selectedProgram().active);
         delete.setTooltip(fileSelected && selectedProgram().active ? Tooltip.create(label("program_delete_hint")) : null);
         searchOpen.active = writable && !modal;
+        remoteOpen.active = !modal && !searching && !awaitingVolume && !awaitingSearchExit
+                && menu.view().contains("Session");
+        remoteOpen.setMessage(label(selectedEntry() == null ? "transfer_settings" : "transfer_open"));
+        remoteOpen.setTooltip(Tooltip.create(label(searching ? "transfer_search_hint"
+                : selectedEntry() == null ? "transfer_settings_hint" : "transfer_open_hint")));
         searchScope.active = searchExit.active = !awaitingSearchExit && !modal;
         up.active = current() != 0 && !modal;
         previous.active = menu.view().getInt("Page") > 0 && !modal && (!searching || searchReady());
@@ -749,7 +768,7 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
         boolean connected = menu.cable().status() == StationConnection.Status.CONNECTED || menu.view().getInt("NasCount") > 0;
         g.fill(leftPos + 20, topPos + 15, leftPos + 26, topPos + 21, 0xff303030);
         g.fill(leftPos + 21, topPos + 16, leftPos + 25, topPos + 20, connected ? 0xff55ac72 : 0xffb7784c);
-        text(g, label("title"), 28, 9, imageWidth - 140, TEXT);
+        text(g, label("title"), 28, 9, imageWidth - 226, TEXT);
         String capacity = menu.view().getBoolean("Locked") ? label("locked").getString()
                 : !menu.view().getBoolean("Available") ? label("offline").getString()
                 : compact(menu.view().getLong("Total")) + " / " + compact(menu.view().getLong("Capacity"));

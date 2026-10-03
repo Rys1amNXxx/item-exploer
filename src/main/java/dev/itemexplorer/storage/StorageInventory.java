@@ -35,7 +35,7 @@ public final class StorageInventory implements StorageAccess {
     public record Entry(int id, int folder, ItemStack stack, long count) {}
 
     private final Map<Integer, Folder> folders = new LinkedHashMap<>();
-    private final Map<Integer, Entry> entries = new LinkedHashMap<>();
+    private Map<Integer, Entry> entries = new LinkedHashMap<>();
     private final Runnable changed;
     private final StorageLimits limits;
     private long totalCount;
@@ -207,25 +207,84 @@ public final class StorageInventory implements StorageAccess {
         long amount = Math.min(source.count, requested);
         Entry match = matching(target, source.stack);
         boolean structural = match == null || amount == source.count;
+        if (match == null && amount != source.count
+                && (entries.size() >= limits.entries() || nextEntry == Integer.MAX_VALUE)) {
+            throw new IllegalArgumentException("entry_limit");
+        }
+        // Prepare samples, entries and map allocations before publishing any change.
+        Map<Integer, Entry> prepared = new LinkedHashMap<>(entries);
+        int preparedNextEntry = nextEntry;
         if (match == null && amount == source.count) {
-            entries.put(id, new Entry(id, target, source.stack, amount));
+            prepared.put(id, new Entry(id, target, source.stack, amount));
         } else {
-            if (match == null && (entries.size() >= limits.entries() || nextEntry == Integer.MAX_VALUE)) {
-                throw new IllegalArgumentException("entry_limit");
-            }
-            if (amount == source.count) entries.remove(id);
-            else entries.put(id, new Entry(id, source.folder, source.stack, source.count - amount));
+            if (amount == source.count) prepared.remove(id);
+            else prepared.put(id, new Entry(id, source.folder, source.stack, source.count - amount));
             if (match == null) {
-                int newId = nextEntry++;
-                entries.put(newId, new Entry(newId, target, source.stack.copy(), amount));
+                int newId = preparedNextEntry++;
+                prepared.put(newId, new Entry(newId, target, source.stack.copy(), amount));
             } else {
-                entries.put(match.id, new Entry(match.id, target, match.stack, match.count + amount));
+                prepared.put(match.id, new Entry(match.id, target, match.stack, match.count + amount));
             }
         }
+        entries = prepared;
+        nextEntry = preparedNextEntry;
         if (structural) searchRevision++;
         transferRevision++;
         touch();
         return amount;
+    }
+
+    /** Implementation for the server-thread-only, all-or-nothing transfer facade. */
+    long transferTo(int id, StorageInventory target, int folder, long requested) {
+        requireWritable();
+        target.requireWritable();
+        target.requireFolder(folder);
+        if (requested <= 0) throw new IllegalArgumentException("invalid_amount");
+        Entry source = entries.get(id);
+        if (source == null) throw new IllegalArgumentException("missing_item");
+        if (requested > source.count) throw new IllegalArgumentException("insufficient_items");
+        if (this == target) return move(id, folder, requested);
+        if (requested > target.capacity() - target.totalCount) throw new IllegalArgumentException("storage_full");
+        if (!acceptsItem(source.stack)) throw new IllegalArgumentException("nested_device");
+
+        Entry match = target.matching(folder, source.stack);
+        int preparedNextEntry = target.nextEntry;
+        Entry received;
+        if (match == null) {
+            if (target.entries.size() >= target.limits.entries() || preparedNextEntry == Integer.MAX_VALUE) {
+                throw new IllegalArgumentException("entry_limit");
+            }
+            ItemStack sample = source.stack.copyWithCount(1);
+            checkItemSize(sample.save(new CompoundTag()));
+            received = new Entry(preparedNextEntry++, folder, sample, requested);
+        } else {
+            received = new Entry(match.id, folder, match.stack, match.count + requested);
+        }
+
+        Map<Integer, Entry> preparedSource = new LinkedHashMap<>(entries);
+        Map<Integer, Entry> preparedTarget = new LinkedHashMap<>(target.entries);
+        boolean removed = requested == source.count;
+        if (removed) preparedSource.remove(id);
+        else preparedSource.put(id, new Entry(id, source.folder, source.stack, source.count - requested));
+        preparedTarget.put(received.id, received);
+
+        // No callbacks, item serialization or allocation between the two publications.
+        // This is atomic to other server-thread operations, not to independent disk saves.
+        entries = preparedSource;
+        target.entries = preparedTarget;
+        totalCount -= requested;
+        target.totalCount += requested;
+        target.nextEntry = preparedNextEntry;
+        if (removed) searchRevision++;
+        if (match == null) target.searchRevision++;
+        revision++;
+        target.revision++;
+        transferRevision++;
+        target.transferRevision++;
+        // Owners use non-throwing setChanged/setDirty hooks. Both observe committed state.
+        try { changed.run(); }
+        finally { target.changed.run(); }
+        return requested;
     }
 
     /** Protected data is written back verbatim, including an invalid Storage tag type. */

@@ -13,6 +13,7 @@ import dev.itemexplorer.storage.StorageTransfers;
 import dev.itemexplorer.storage.SearchCatalogSupport;
 import dev.itemexplorer.production.TerminalPrograms;
 import dev.itemexplorer.production.ProgramFile;
+import dev.itemexplorer.transfer.RemoteTransfers;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
@@ -62,6 +63,8 @@ public final class StorageMenu extends AbstractContainerMenu {
     private long sentRevision = -2, sentSession;
     private long sentProgramRevision = -2, nextProgramRefresh;
     private String sentNasStamp = "";
+    private long sentTransferConfigRevision = -1;
+    private ListTag transferTargets = new ListTag();
     private CableStorageAccess.Result nasAccess = new CableStorageAccess.Result(List.of(), 0, "checking");
     private long nextTopologyCheck = Long.MIN_VALUE;
     private boolean searching, searchReady, searchRecursive;
@@ -246,6 +249,8 @@ public final class StorageMenu extends AbstractContainerMenu {
         disks.values().forEach(volumes::add);
         if (!volume.isEmpty() && !disks.containsKey(volume)) { CompoundTag missing = new CompoundTag(); missing.putString("Id", volume); missing.putBoolean("Online", false); volumes.add(missing); }
         view.put("Volumes", volumes);
+        view.put("RemoteConfig", RemoteTransfers.configuration(blockEntity));
+        view.put("RemoteTargets", transferTargets.copy());
         return view;
     }
     private void sync(boolean force) {
@@ -255,6 +260,7 @@ public final class StorageMenu extends AbstractContainerMenu {
         boolean catalogSent = syncCatalog(serverPlayer, storage);
         long revision = storage == null ? -1 : storage.revision();
         long programRevision = blockEntity.programs().revision();
+        long transferConfigRevision = blockEntity.transferConfig().revision();
         boolean programRefresh = !blockEntity.programs().files().isEmpty() && player.level().getGameTime() >= nextProgramRefresh;
         if (programRefresh) nextProgramRefresh = player.level().getGameTime() + 20;
         StringBuilder devices = new StringBuilder(nasAccess.wireStatus()).append(':').append(nasAccess.wiredCabinets());
@@ -262,6 +268,7 @@ public final class StorageMenu extends AbstractContainerMenu {
                 .append(':').append(nas.stamp(0)).append(':').append(nas.revision());
         String nasStamp = devices.toString();
         if (!force && !catalogSent && !programRefresh && programRevision == sentProgramRevision
+                && transferConfigRevision == sentTransferConfigRevision
                 && revision == sentRevision && session == sentSession && nasStamp.equals(sentNasStamp)) return;
         CompoundTag view = currentSnapshot();
         if (force || catalogSent || !view.equals(sentView)) {
@@ -276,6 +283,7 @@ public final class StorageMenu extends AbstractContainerMenu {
         }
         sentRevision = revision; sentSession = session; sentNasStamp = nasStamp;
         sentProgramRevision = blockEntity.programs().revision();
+        sentTransferConfigRevision = transferConfigRevision;
         message = "";
     }
     @Override public void broadcastChanges() {
@@ -368,6 +376,59 @@ public final class StorageMenu extends AbstractContainerMenu {
     private void requireVisibleEntry(StorageAccess storage, int id) {
         StorageInventory.Entry entry = storage.entry(id);
         if (entry == null || entry.folder() != currentFolder) throw new IllegalArgumentException("missing_item");
+    }
+
+    public void handleTransfer(StorageNetwork.TransferRequest request) {
+        if (blockEntity == null || request.menuId() != containerId || !stillValid(player) || !allowAction()) return;
+        refreshMount();
+        try {
+            if (request.session() != session) throw new IllegalArgumentException("stale");
+            if (searching) throw new IllegalArgumentException("search_active");
+            CompoundTag config = RemoteTransfers.configuration(blockEntity);
+            if (request.action() != StorageNetwork.TransferAction.REFRESH
+                    && request.configRevision() != config.getLong("ConfigRevision")) throw new IllegalArgumentException("stale");
+            if (request.action() == StorageNetwork.TransferAction.REFRESH) {
+                transferTargets = RemoteTransfers.targets(blockEntity);
+                message = "";
+            } else if (request.action() == StorageNetwork.TransferAction.SEND) {
+                StorageAccess storage = storage();
+                if (storage == null) throw new IllegalArgumentException("disk_offline");
+                if (request.revision() != storage.revision() || !request.volume().equals(volume)
+                        || request.folder() != currentFolder || sentView == null
+                        || sentView.getLong("Revision") != request.revision()
+                        || sentView.getLong("Session") != session) throw new IllegalArgumentException("stale");
+                boolean published = false;
+                for (Tag row : sentView.getList("Entries", Tag.TAG_COMPOUND))
+                    if (((CompoundTag) row).getInt("Id") == request.entry()) { published = true; break; }
+                if (!published) throw new IllegalArgumentException("missing_item");
+                boolean advertised = false;
+                for (Tag row : transferTargets) {
+                    CompoundTag target = (CompoundTag) row;
+                    if (target.hasUUID("Id") && target.getUUID("Id").equals(request.target())
+                            && target.getLong("Revision") == request.targetRevision()) { advertised = true; break; }
+                }
+                if (!advertised) throw new IllegalArgumentException("remote_target_changed");
+                requireVisibleEntry(storage, request.entry());
+                RemoteTransfers.send(blockEntity, volume, request.entry(), request.amount(), request.target(), request.targetRevision());
+                message = "transfer_sent";
+                transferTargets = RemoteTransfers.targets(blockEntity);
+            } else {
+                boolean bind = request.action() == StorageNetwork.TransferAction.BIND;
+                if (bind) {
+                    StorageAccess storage = storage();
+                    if (storage == null) throw new IllegalArgumentException("disk_offline");
+                    if (request.revision() != storage.revision() || !request.volume().equals(volume)
+                            || request.folder() != currentFolder) throw new IllegalArgumentException("stale");
+                }
+                RemoteTransfers.configure(blockEntity,
+                        request.action() == StorageNetwork.TransferAction.NAME ? request.name() : config.getString("Name"),
+                        bind ? volume : config.getString("Volume"), bind ? currentFolder : config.getInt("Folder"),
+                        request.action() == StorageNetwork.TransferAction.RECEIVING ? request.enabled() : config.getBoolean("Enabled"),
+                        request.configRevision());
+                message = "transfer_configured";
+            }
+        } catch (IllegalArgumentException rejected) { message = rejected.getMessage(); }
+        sync(true);
     }
 
     public void handleFile(StorageNetwork.FileRequest request) {

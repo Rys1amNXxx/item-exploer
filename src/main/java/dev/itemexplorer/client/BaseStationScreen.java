@@ -3,8 +3,10 @@ package dev.itemexplorer.client;
 import dev.itemexplorer.menu.BaseStationMenu;
 import dev.itemexplorer.station.BaseStationStructure;
 import dev.itemexplorer.station.StationConnection;
+import dev.itemexplorer.network.StorageNetwork;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.player.Inventory;
@@ -12,7 +14,7 @@ import net.minecraft.world.entity.player.Inventory;
 import java.util.List;
 import java.util.Locale;
 
-/** Small status window with a built-in construction guide; no network controls yet. */
+/** Structure diagnostics, construction guide, and the station's wireless network switch. */
 public final class BaseStationScreen extends AbstractContainerScreen<BaseStationMenu> {
     private static final String[][] LAYERS = {
             {"FPF", "BFB", "FCF"}, {"...", ".M.", "..."}, {"...", ".M.", "..."},
@@ -21,7 +23,7 @@ public final class BaseStationScreen extends AbstractContainerScreen<BaseStation
     private boolean guide;
     private int page;
     private int rows;
-    private Button toggle, previous, next;
+    private Button toggle, previous, next, network;
 
     public BaseStationScreen(BaseStationMenu menu, Inventory inventory, Component title) {
         super(menu, inventory, title);
@@ -46,6 +48,11 @@ public final class BaseStationScreen extends AbstractContainerScreen<BaseStation
                 .bounds(leftPos + 9, topPos + imageHeight - 25, 24, 18).build());
         next = addRenderableWidget(Button.builder(Component.literal(">"), b -> page++)
                 .bounds(leftPos + imageWidth - 33, topPos + imageHeight - 25, 24, 18).build());
+        network = addRenderableWidget(Button.builder(label("network_off"), b -> {
+            StorageNetwork.request(new StorageNetwork.StationNetworkRequest(menu.containerId,
+                    menu.networkView().getLong("Session"), menu.networkOnline(), !menu.networkOnline()));
+        }).bounds(leftPos + 11, topPos + imageHeight - 53, imageWidth - 22, 18).build());
+        network.setTooltip(Tooltip.create(label("network_hint")));
     }
 
     @Override public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
@@ -54,6 +61,9 @@ public final class BaseStationScreen extends AbstractContainerScreen<BaseStation
         previous.visible = next.visible = !guide && menu.ready() && !menu.complete();
         previous.active = page > 0;
         next.active = page + 1 < pages;
+        network.visible = !guide && menu.ready() && menu.complete();
+        network.active = menu.networkView().contains("Session");
+        network.setMessage(label(menu.networkOnline() ? "network_on" : "network_off"));
         renderBackground(graphics);
         super.render(graphics, mouseX, mouseY, partialTick);
         renderTooltip(graphics, mouseX, mouseY);

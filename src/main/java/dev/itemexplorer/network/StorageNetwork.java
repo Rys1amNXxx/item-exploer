@@ -6,6 +6,7 @@ import dev.itemexplorer.menu.StorageMenu;
 import dev.itemexplorer.menu.NasMenu;
 import dev.itemexplorer.menu.LogisticsPortMenu;
 import dev.itemexplorer.menu.ProductionPortMenu;
+import dev.itemexplorer.menu.BaseStationMenu;
 import dev.itemexplorer.storage.StorageSearch;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.FriendlyByteBuf;
@@ -22,15 +23,63 @@ import net.minecraftforge.network.simple.SimpleChannel;
 import java.util.Optional;
 import java.util.Arrays;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.function.Supplier;
 
 public final class StorageNetwork {
-    private static final String VERSION = "11";
+    private static final String VERSION = "12";
     private static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
             ResourceLocation.fromNamespaceAndPath(ItemExplorer.MOD_ID, "storage"), () -> VERSION, VERSION::equals, VERSION::equals);
 
     public enum Action { OPEN, PAGE, CREATE, RENAME, DELETE, MOVE, WITHDRAW, DEPOSIT_CURSOR, RESIZE, SELECT_VOLUME, RENAME_DISK, DEPOSIT_SLOT }
     public enum SearchAction { START, APPLY, PAGE, RESIZE, EXIT, LOCATE, TAKE }
+    public enum TransferAction { REFRESH, NAME, BIND, RECEIVING, SEND }
+
+    /** Contextual transfer requests carry identities only; storage and routes are resolved by the server. */
+    public record TransferRequest(int menuId, long session, long revision, long configRevision,
+                                  TransferAction action, String name, String volume, int folder,
+                                  boolean enabled, int entry, long amount, UUID target, long targetRevision) {
+        public TransferRequest {
+            Objects.requireNonNull(action); Objects.requireNonNull(name); Objects.requireNonNull(volume);
+            Objects.requireNonNull(target);
+            if (name.length() > 64 || volume.length() > 36) throw new IllegalArgumentException("Transfer text is too long");
+        }
+        public static TransferRequest decode(FriendlyByteBuf buf) {
+            return new TransferRequest(buf.readVarInt(), buf.readLong(), buf.readLong(), buf.readLong(),
+                    buf.readEnum(TransferAction.class), buf.readUtf(64), buf.readUtf(36), buf.readVarInt(),
+                    buf.readBoolean(), buf.readVarInt(), buf.readLong(), buf.readUUID(), buf.readLong());
+        }
+        public void encode(FriendlyByteBuf buf) {
+            buf.writeVarInt(menuId); buf.writeLong(session); buf.writeLong(revision); buf.writeLong(configRevision);
+            buf.writeEnum(action); buf.writeUtf(name, 64); buf.writeUtf(volume, 36); buf.writeVarInt(folder);
+            buf.writeBoolean(enabled); buf.writeVarInt(entry); buf.writeLong(amount); buf.writeUUID(target); buf.writeLong(targetRevision);
+        }
+        public void handle(Supplier<NetworkEvent.Context> context) {
+            context.get().enqueueWork(() -> {
+                ServerPlayer player = context.get().getSender();
+                if (player != null && player.containerMenu instanceof StorageMenu menu
+                        && menu.containerId == menuId && menu.stillValid(player)) menu.handleTransfer(this);
+            });
+            context.get().setPacketHandled(true);
+        }
+    }
+
+    public record StationNetworkRequest(int menuId, long session, boolean expectedOnline, boolean online) {
+        public static StationNetworkRequest decode(FriendlyByteBuf buf) {
+            return new StationNetworkRequest(buf.readVarInt(), buf.readLong(), buf.readBoolean(), buf.readBoolean());
+        }
+        public void encode(FriendlyByteBuf buf) {
+            buf.writeVarInt(menuId); buf.writeLong(session); buf.writeBoolean(expectedOnline); buf.writeBoolean(online);
+        }
+        public void handle(Supplier<NetworkEvent.Context> context) {
+            context.get().enqueueWork(() -> {
+                ServerPlayer player = context.get().getSender();
+                if (player != null && player.containerMenu instanceof BaseStationMenu menu
+                        && menu.containerId == menuId && menu.stillValid(player)) menu.handleNetwork(this);
+            });
+            context.get().setPacketHandled(true);
+        }
+    }
 
     /** Search never carries inventory samples from the client, only bounded entry identities. */
     public record SearchRequest(int menuId, long session, long querySeq, long catalogRevision, long viewSeq,
@@ -248,6 +297,10 @@ public final class StorageNetwork {
                 Optional.of(NetworkDirection.PLAY_TO_SERVER));
         CHANNEL.registerMessage(7, FileRequest.class, FileRequest::encode, FileRequest::decode, FileRequest::handle,
                 Optional.of(NetworkDirection.PLAY_TO_SERVER));
+        CHANNEL.registerMessage(8, TransferRequest.class, TransferRequest::encode, TransferRequest::decode, TransferRequest::handle,
+                Optional.of(NetworkDirection.PLAY_TO_SERVER));
+        CHANNEL.registerMessage(9, StationNetworkRequest.class, StationNetworkRequest::encode, StationNetworkRequest::decode, StationNetworkRequest::handle,
+                Optional.of(NetworkDirection.PLAY_TO_SERVER));
     }
 
     public static void request(Request request) { CHANNEL.sendToServer(request); }
@@ -256,6 +309,8 @@ public final class StorageNetwork {
     public static void request(SearchRequest request) { CHANNEL.sendToServer(request); }
     public static void request(ProductionRequest request) { CHANNEL.sendToServer(request); }
     public static void request(FileRequest request) { CHANNEL.sendToServer(request); }
+    public static void request(TransferRequest request) { CHANNEL.sendToServer(request); }
+    public static void request(StationNetworkRequest request) { CHANNEL.sendToServer(request); }
     public static void searchCatalog(ServerPlayer player, SearchCatalog packet) {
         CHANNEL.send(PacketDistributor.PLAYER.with(() -> player), packet);
     }

@@ -1,0 +1,14 @@
+Remote transfer real client acceptance
+START pid=42604 language=zh_cn
+SCREENSHOT station-network-on.png
+PASS both network switches enabled through real station buttons and packets
+SCREENSHOT receiver-configured.png
+PASS named receiver, bound current inbox directory and enabled receiving through real buttons
+SCREENSHOT remote-send-zh-normal.png
+SCREENSHOT remote-send-zh-minimum.png
+PASS real remote send; Chinese feedback rendered at 960x720 and 640x480
+PASS old target identity rejected after disconnect: remote_target_changed
+SCREENSHOT remote-offline-rejected.png
+PASS stale advertised destination rejected when remote network went offline; totals source=48,target=16
+PASS child screen preserves menu session and three cursor diamonds; returned parent accepts real slot clicks
+PASS all checks; screenshots=5; actual client/server packets; no OS input; ticks=149
