@@ -1,0 +1,17 @@
+Forge 47.0.0
+[22:52:10] [modloading-worker-0/INFO] [ne.mi.co.ForgeMod/FORGEMOD]: Forge mod loading, version 47.0.0, for MC 1.20.1 with MCP 20230612.114412
+[22:52:21] [Server thread/INFO] [minecraft/GameTestServer]: All 187 required tests passed :)
+BUILD SUCCESSFUL in 34s
+PASS terminal front/top/side and rear socket close-ups at 960x720; all checks; screenshots=13; real models + integrated server + storage requests; ticks=185
+Forge 47.3.22
+[22:55:58] [modloading-worker-0/INFO] [ne.mi.co.ForgeMod/FORGEMOD]: Forge mod loading, version 47.3.22, for MC 1.20.1 with MCP 20230612.114412
+[22:56:10] [Server thread/INFO] [minecraft/GameTestServer]: All 187 required tests passed :)
+[22:56:20] [modloading-worker-0/INFO] [ne.mi.co.ForgeMod/FORGEMOD]: Forge mod loading, version 47.3.22, for MC 1.20.1 with MCP 20230612.114412
+BUILD SUCCESSFUL in 1m 10s
+PASS terminal front/top/side and rear socket close-ups at 960x720; all checks; screenshots=13; real models + integrated server + storage requests; ticks=184
+Forge 47.4.23
+[22:57:11] [modloading-worker-0/INFO] [ne.mi.co.ForgeMod/FORGEMOD]: Forge mod loading, version 47.4.23, for MC 1.20.1 with MCP 20230612.114412
+[22:57:23] [Server thread/INFO] [minecraft/GameTestServer]: All 187 required tests passed :)
+[22:57:32] [modloading-worker-0/INFO] [ne.mi.co.ForgeMod/FORGEMOD]: Forge mod loading, version 47.4.23, for MC 1.20.1 with MCP 20230612.114412
+BUILD SUCCESSFUL in 55s
+PASS terminal front/top/side and rear socket close-ups at 960x720; all checks; screenshots=13; real models + integrated server + storage requests; ticks=183

@@ -18,7 +18,7 @@ public final class BrewingMachineAdapter implements MachineAdapter {
     public static final BrewingMachineAdapter INSTANCE = new BrewingMachineAdapter();
     public static final int BOTTLE = 0, REAGENT = 3, BLAZE = 4;
     private static final String EXPECTED_POWDER = "ExpectedPowder";
-    private static final ResourceLocation RECIPE = ResourceLocation.fromNamespaceAndPath("itemexplorer", "brewing");
+    private static final ResourceLocation RECIPE = new ResourceLocation("itemexplorer", "brewing");
 
     private BrewingMachineAdapter() {}
 

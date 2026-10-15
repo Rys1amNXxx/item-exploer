@@ -16,6 +16,10 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        forge: ['47.0.0', '47.3.22', '47.4.23']
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -25,13 +29,16 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: gradle/actions/setup-gradle@4c125117fe7c5aed11272ec4213f602f012f89f2 # v5
-      - name: Build release jar and run required GameTests
-        run: bash ./gradlew build runGameTestServer --no-daemon --console=plain --stacktrace
+      - name: Compile release jar and GameTests against the minimum Forge
+        run: bash ./gradlew build compileGametestJava --no-daemon --console=plain --stacktrace
+      - name: Run the minimum-version bytecode on Forge ${{ matrix.forge }}
+        # Do not recompile against newer Forge: that could hide binary incompatibilities.
+        run: bash ./gradlew runGameTestServer -Pforge_version=${{ matrix.forge }} -x compileJava -x compileGametestJava --no-daemon --console=plain --stacktrace
       - name: Keep verification logs
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: verification-logs
+          name: verification-logs-forge-${{ matrix.forge }}
           path: |
             run-gametest/logs/
             run-gametest/crash-reports/
@@ -39,6 +46,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
       - name: Keep verified jar
+        if: matrix.forge == '47.0.0'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: item-explorer

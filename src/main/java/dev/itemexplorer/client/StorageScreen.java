@@ -33,7 +33,7 @@ import java.util.Set;
 
 public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
     private static final int TEXT = 0xff303030, MUTED = 0xff505050;
-    private static final ResourceLocation CRAFTING_TEXTURE = ResourceLocation.fromNamespaceAndPath("minecraft", "textures/gui/container/crafting_table.png");
+    private static final ResourceLocation CRAFTING_TEXTURE = new ResourceLocation("minecraft", "textures/gui/container/crafting_table.png");
     private static final Set<String> QUIET_MESSAGES = Set.of("", "created", "renamed", "deleted", "moved",
             "deposited", "withdrawn", "no_change");
     private record Folder(int id, int parent, String name, int depth) {}

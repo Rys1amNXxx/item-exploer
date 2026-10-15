@@ -32,7 +32,7 @@ import net.minecraftforge.registries.ForgeRegistries;
 @PrefixGameTestTemplate(false)
 public final class RealModLogisticsTests {
     private record Setup(NasBlockEntity nas, LogisticsPortBlockEntity port, int folder) {}
-    private static Block block(String id) { return ForgeRegistries.BLOCKS.getValue(ResourceLocation.parse(id)); }
+    private static Block block(String id) { return ForgeRegistries.BLOCKS.getValue(new ResourceLocation(id)); }
     private static Setup setup(GameTestHelper h, int x, int z) {
         BlockPos pos = h.absolutePos(new BlockPos(x,3,z));
         h.getLevel().setBlockAndUpdate(pos, ModContent.NAS_BLOCK.get().defaultBlockState());

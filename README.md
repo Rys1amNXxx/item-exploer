@@ -1,16 +1,17 @@
 # Item Explorer / 物品资源管理器
 
 独立的 Minecraft Forge 存储模组，目标是用文件夹和资源管理器式界面管理游戏物品。
-当前发布版本为 **0.4.0**：包含存储终端、目录树、NAS 硬盘、物品搜索、手动工作台、外部物流、基站结构、数据导线接入、终端物品发送、目录程序文件和原版机器自动加工。
+当前发布版本为 **0.4.1**（Forge 兼容性修订）：包含存储终端、目录树、NAS 硬盘、物品搜索、手动工作台、外部物流、基站结构、数据导线接入、终端物品发送、目录程序文件和原版机器自动加工。
 项目仍在持续开发，容量、外观和交互可能继续调整。
 
 ## 下载与安装
 
-在 [GitHub Release v0.4.0](https://github.com/Rys1amNXxx/item-exploer/releases/tag/v0.4.0) 下载
-`itemexplorer-1.20.1-0.4.0.jar`，放入游戏实例或服务器的 `mods/` 目录。
-需要 **Minecraft 1.20.1、Forge 47.4.23 或更新的 47.x、64 位 Java 17**；不适用于 Fabric 或其他 Minecraft 版本。
+在 [GitHub Release v0.4.1](https://github.com/Rys1amNXxx/item-exploer/releases/tag/v0.4.1) 下载
+`itemexplorer-1.20.1-0.4.1.jar`，放入游戏实例或服务器的 `mods/` 目录；附件 `SHA256SUMS.txt` 提供下载校验值。
+需要 **Minecraft 1.20.1、Forge 47.0.0 或更新的 47.x、64 位 Java 17**；不适用于 Fabric 或其他 Minecraft 版本。
 多人游戏的客户端和服务端需安装同一版本。升级前备份存档，并移除 `mods/` 中的旧版 Item Explorer JAR，避免重复加载。
-下载页同时提供 SHA-256 校验文件；完整更新内容见 [0.4.0 发布说明](docs/releases/v0.4.0.md)。
+[GitHub Release v0.4.0](https://github.com/Rys1amNXxx/item-exploer/releases/tag/v0.4.0) 中的旧 JAR 仍要求 Forge 47.4.23，降低限制需要更新到 0.4.1。
+本次修改见 [0.4.1 更新说明](docs/releases/v0.4.1.md)，原有功能见 [0.4.0 发布说明](docs/releases/v0.4.0.md)。
 
 ## 游戏中使用
 
@@ -154,7 +155,7 @@ Shift 点击背包硬盘安装，或拿起硬盘后点对应盘位的“安装�
 | 组件 | 固定版本 |
 | --- | --- |
 | Minecraft | 1.20.1 |
-| Forge | 47.4.23 |
+| Forge（编译及最低运行版本） | 47.0.0 |
 | Java | JDK 17，64 位 |
 | Gradle Wrapper | 8.8 |
 | ForgeGradle | 6.0.54 |
@@ -173,9 +174,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\dev.ps1 build
 powershell -NoProfile -ExecutionPolicy Bypass -File .\dev.ps1 runClient
 ```
 
-打包输出：`build/libs/itemexplorer-1.20.1-0.4.0.jar`。
+打包输出：`build/libs/itemexplorer-1.20.1-0.4.1.jar`。
 将此 JAR 放入安装了对应 Forge 的 Minecraft 1.20.1 实例的 `mods/` 目录。
-多人游戏的客户端与服务端都需要安装相同版本。0.4.0 继续读取 0.1.x
+多人游戏的客户端与服务端都需要安装相同版本。0.4.1 继续读取 0.1.x
 使用的终端版本 1 存档及 0.2.x 硬盘数据；网络协议为 12，客户端和服务端应使用同一构建。
 `-ExecutionPolicy Bypass` 仅适用于当前 PowerShell 子进程，不修改系统策略。
 
@@ -209,8 +210,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\dev.ps1 runGameTestServer
 
 GameTest 使用独立的 `run-gametest/` 世界，测试代码和测试结构不打进发布 JAR。
 `build` 只进行构建，不代替 `runGameTestServer`；当前没有普通 JUnit 测试。
-GitHub Actions 会在 push / pull request 时执行 `build runGameTestServer`，
-保存验证日志，并在全部通过后保存 JAR；也可以手动触发。
+GitHub Actions 会在 push / pull request 时使用 Forge 47.0.0 编译，
+再将同一版本的字节码分别运行于 47.0.0、47.3.22 和 47.4.23 的 GameTest 服务端。
+工作流保存各版本日志和最低版本构建的 JAR；也可以手动触发。
 
 独立服务端重启、保存后强杀恢复、真实双客户端 TCP 和界面补充验收的结果、已知问题及复跑脚本见 [0.3.0 补充验收报告](docs/acceptance-2026-09-29.md)。
 

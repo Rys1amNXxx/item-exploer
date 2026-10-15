@@ -91,7 +91,7 @@ public final class RestartPersistenceProbe {
     }
 
     private static ItemStack modItem(String id, int count, int fixture) {
-        var item = ForgeRegistries.ITEMS.getValue(ResourceLocation.parse(id));
+        var item = ForgeRegistries.ITEMS.getValue(new ResourceLocation(id));
         if (item == null || item == Items.AIR) throw new IllegalStateException("Missing real mod item: " + id);
         ItemStack stack = new ItemStack(item, count);
         stack.setHoverName(Component.literal("Restart " + id));
@@ -133,7 +133,7 @@ public final class RestartPersistenceProbe {
 
     private static int energy(StorageInventory inventory) {
         ItemStack tablet = inventory.entries().stream().map(StorageInventory.Entry::stack)
-                .filter(stack -> ResourceLocation.parse("mekanism:energy_tablet").equals(ForgeRegistries.ITEMS.getKey(stack.getItem())))
+                .filter(stack -> new ResourceLocation("mekanism:energy_tablet").equals(ForgeRegistries.ITEMS.getKey(stack.getItem())))
                 .findFirst().orElseThrow(() -> new AssertionError("Missing MEK energy tablet"));
         return tablet.getCapability(ForgeCapabilities.ENERGY)
                 .orElseThrow(() -> new AssertionError("Stored MEK tablet lost its Forge ENERGY capability")).getEnergyStored();

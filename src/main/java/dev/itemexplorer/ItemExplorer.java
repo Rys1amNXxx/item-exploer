@@ -13,7 +13,9 @@ public final class ItemExplorer {
     public static final String MOD_ID = "itemexplorer";
     private static final Logger LOGGER = LogUtils.getLogger();
 
-    public ItemExplorer(FMLJavaModLoadingContext context) {
+    public ItemExplorer() {
+        // Constructor context injection is only supported in Forge 47.3.10 and later.
+        var context = FMLJavaModLoadingContext.get();
         ModContent.register(context.getModEventBus());
         StorageNetwork.register();
         context.getModEventBus().addListener(this::commonSetup);
