@@ -1,17 +1,17 @@
 # Item Explorer / 物品资源管理器
 
 独立的 Minecraft Forge 存储模组，目标是用文件夹和资源管理器式界面管理游戏物品。
-当前发布版本为 **0.4.1**（Forge 兼容性修订）：包含存储终端、目录树、NAS 硬盘、物品搜索、手动工作台、外部物流、基站结构、数据导线接入、终端物品发送、目录程序文件和原版机器自动加工。
+当前发布版本为 **0.4.2**（当前目录中键排序）：包含存储终端、目录树、NAS 硬盘、物品搜索、手动工作台、外部物流、基站结构、数据导线接入、终端物品发送、目录程序文件和原版机器自动加工。
 项目仍在持续开发，容量、外观和交互可能继续调整。
 
 ## 下载与安装
 
-在 [GitHub Release v0.4.1](https://github.com/Rys1amNXxx/item-exploer/releases/tag/v0.4.1) 下载
-`itemexplorer-1.20.1-0.4.1.jar`，放入游戏实例或服务器的 `mods/` 目录；附件 `SHA256SUMS.txt` 提供下载校验值。
+在 [GitHub Release v0.4.2](https://github.com/Rys1amNXxx/item-exploer/releases/tag/v0.4.2) 下载
+`itemexplorer-1.20.1-0.4.2.jar`，放入游戏实例或服务器的 `mods/` 目录；附件 `SHA256SUMS.txt` 提供下载校验值。
 需要 **Minecraft 1.20.1、Forge 47.0.0 或更新的 47.x、64 位 Java 17**；不适用于 Fabric 或其他 Minecraft 版本。
-多人游戏的客户端和服务端需安装同一版本。升级前备份存档，并移除 `mods/` 中的旧版 Item Explorer JAR，避免重复加载。
-[GitHub Release v0.4.0](https://github.com/Rys1amNXxx/item-exploer/releases/tag/v0.4.0) 中的旧 JAR 仍要求 Forge 47.4.23，降低限制需要更新到 0.4.1。
-本次修改见 [0.4.1 更新说明](docs/releases/v0.4.1.md)，原有功能见 [0.4.0 发布说明](docs/releases/v0.4.0.md)。
+多人游戏的客户端和服务端需安装同一版本；0.4.2 使用网络协议 13，需双方同步升级。升级前备份存档，并移除 `mods/` 中的旧版 Item Explorer JAR，避免重复加载。
+[GitHub Release v0.4.0](https://github.com/Rys1amNXxx/item-exploer/releases/tag/v0.4.0) 中的旧 JAR 仍要求 Forge 47.4.23，降低限制需要更新到 0.4.1 或更新版本。
+本次修改见 [0.4.2 更新说明](docs/releases/v0.4.2.md)，Forge 兼容性调整见 [0.4.1 更新说明](docs/releases/v0.4.1.md)。
 
 ## 游戏中使用
 
@@ -65,7 +65,7 @@
 
 **拆除终端会将本地盘库存掉落到世界中，目录结构不会保留在掉落方块上。**
 掉落物仍受原版消失、火焰、爆炸等规则影响，搬家前建议先取出物品。
-0.3.0 可通过单独的物流接口接入漏斗 / 管道，0.4.0 增加当前盘物品搜索及终端间发送；当前开发版支持中键排序，远端库存浏览、目录重排和玩家权限系统尚未实现。
+0.3.0 可通过单独的物流接口接入漏斗 / 管道，0.4.0 增加当前盘物品搜索及终端间发送，0.4.2 增加当前目录中键排序；远端库存浏览、目录重排和玩家权限系统尚未实现。
 可以接近设备的玩家都能使用它。
 
 0.1.2 增加存档保护：未知版本、损坏目录或异常物品数据会使终端进入“数据保护中”，
