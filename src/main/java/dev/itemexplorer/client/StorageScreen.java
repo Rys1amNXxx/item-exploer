@@ -49,7 +49,7 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
     private StorageLayout layout;
     private EditBox quantity, folderName, searchQuery;
     private Button create, rename, delete, up, previous, next, withdraw, move, all, deposit, modalOk, modalCancel;
-    private Button searchOpen, searchScope, searchExit, modalKind, remoteOpen;
+    private Button searchOpen, searchScope, searchExit, modalKind, remoteOpen, defaultVolume;
     private boolean searching, searchRecursive, catalogLoading, applyingSearch, awaitingSearchExit;
     private CompoundTag searchTransitionView;
     private long searchSession, querySeq, catalogRevision = -1, pendingCatalogRevision = -1, searchChangedAt;
@@ -116,6 +116,9 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
         });
         searchOpen = button(198, 23, 38, "search", b -> openSearch());
         searchOpen.setTooltip(Tooltip.create(label("search_hint")));
+        defaultVolume = addRenderableWidget(Button.builder(label("set_default_volume"),
+                b -> send(Action.SET_DEFAULT_VOLUME, 0, 0, 0, menu.view().getString("Volume")))
+                .bounds(leftPos + layout.defaultVolumeX(), topPos + 43, 80, 14).build());
         searchQuery = addRenderableWidget(new EditBox(font, leftPos + 8, topPos + 24,
                 layout.searchWidth(), 16, label("search_query")));
         searchQuery.setMaxLength(StorageSearch.MAX_QUERY);
@@ -232,6 +235,7 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
 
     private void updateSearchWidgets() {
         create.visible = rename.visible = delete.visible = up.visible = searchOpen.visible = !searching;
+        defaultVolume.visible = !searching;
         searchQuery.visible = searchScope.visible = searchExit.visible = searching;
         searchScope.setMessage(label(searchRecursive ? "search_tree" : "search_drive"));
         searchScope.setTooltip(Tooltip.create(label(searchRecursive ? "search_tree_hint" : "search_drive_hint")));
@@ -492,7 +496,7 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
         }
         Collections.reverse(chain);
         boolean shortened = false;
-        int available = imageWidth - 16;
+        int available = layout.defaultVolumeX() - 12;
         while (chain.size() > 2 && crumbWidth(chain) + (shortened ? 24 : 0) > available) {
             chain.remove(1); shortened = true;
         }
@@ -503,7 +507,7 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
             if (i == 1 && shortened) {
                 result.add(new Crumb(-1, "...", "...", x, 18)); x += 30;
             }
-            String display = fit(f.name, Math.min(90, imageWidth - 8 - x));
+            String display = fit(f.name, Math.min(90, layout.defaultVolumeX() - 4 - x));
             int w = font.width(display);
             result.add(new Crumb(f.id, f.name, display, x, w)); x += w + 12;
         }
@@ -625,6 +629,11 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
                 && (!fileSelected || !selectedProgram().active);
         delete.setTooltip(fileSelected && selectedProgram().active ? Tooltip.create(label("program_delete_hint")) : null);
         searchOpen.active = writable && !modal;
+        boolean isDefaultVolume = menu.view().getString("Volume").equals(menu.view().getString("DefaultVolume"));
+        defaultVolume.active = writable && !modal && !searching && !choosingTarget && !dragging
+                && menu.view().contains("Session") && !isDefaultVolume;
+        defaultVolume.setMessage(label(isDefaultVolume ? "default_volume" : "set_default_volume"));
+        defaultVolume.setTooltip(Tooltip.create(label(isDefaultVolume ? "default_volume_hint" : "set_default_volume_hint")));
         remoteOpen.active = !modal && !searching && !awaitingVolume && !awaitingSearchExit
                 && menu.view().contains("Session");
         remoteOpen.setMessage(label(selectedEntry() == null ? "transfer_settings" : "transfer_open"));
@@ -699,9 +708,11 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
                 Folder f = treeFolderAt(mouseX, mouseY);
                 if (f != null) {
                     Volume drive = volumes.stream().filter(v -> v.id == f.id || f.id == 0 && v.key.equals(menu.view().getString("Volume"))).findFirst().orElse(null);
-                    if (drive != null && !drive.source.isEmpty())
-                        g.renderTooltip(font, List.of(Component.literal(f.name), Component.literal(drive.source)), java.util.Optional.empty(), mouseX, mouseY);
-                    else g.renderTooltip(font, Component.literal(f.name), mouseX, mouseY);
+                    var lines = new ArrayList<Component>();
+                    lines.add(Component.literal(f.name));
+                    if (drive != null && !drive.source.isEmpty()) lines.add(Component.literal(drive.source));
+                    if (drive != null && drive.key.equals(menu.view().getString("DefaultVolume"))) lines.add(label("default_volume"));
+                    g.renderTooltip(font, lines, java.util.Optional.empty(), mouseX, mouseY);
                 }
                 Crumb crumb = crumbAt(mouseX, mouseY);
                 if (crumb != null) g.renderTooltip(font, Component.literal(crumb.name), mouseX, mouseY);

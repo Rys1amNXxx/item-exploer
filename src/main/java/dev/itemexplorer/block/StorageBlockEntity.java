@@ -30,6 +30,7 @@ public final class StorageBlockEntity extends BlockEntity implements MenuProvide
     private java.util.UUID productionIdentity = java.util.UUID.randomUUID();
     private final dev.itemexplorer.transfer.TransferConfig transferConfig = new dev.itemexplorer.transfer.TransferConfig();
     private boolean productionIdentityNeedsSave = true;
+    private java.util.UUID defaultVolume;
     private Path recoveryArchive;
     private Path programRecoveryArchive;
 
@@ -40,6 +41,13 @@ public final class StorageBlockEntity extends BlockEntity implements MenuProvide
     public StorageInventory inventory() { return inventory; }
     public ProgramLibrary programs() { return programs; }
     public String accessSession() { return accessSession; }
+    public String defaultVolume() { return defaultVolume == null ? "" : defaultVolume.toString(); }
+    public void setDefaultVolume(String volume) {
+        java.util.UUID selected = volume.isEmpty() ? null : java.util.UUID.fromString(volume);
+        if (java.util.Objects.equals(defaultVolume, selected)) return;
+        defaultVolume = selected;
+        setChanged();
+    }
     public dev.itemexplorer.transfer.TransferConfig transferConfig() { return transferConfig; }
     public java.util.UUID productionIdentity() {
         if (productionIdentityNeedsSave) { setChanged(); productionIdentityNeedsSave = false; }
@@ -53,6 +61,7 @@ public final class StorageBlockEntity extends BlockEntity implements MenuProvide
         tag.put("Programs", programs.save());
         tag.putUUID("ProductionIdentity", productionIdentity);
         tag.put("RemoteReceiver", transferConfig.save());
+        if (defaultVolume != null) tag.putUUID("DefaultVolume", defaultVolume);
     }
 
     @Override
@@ -63,6 +72,7 @@ public final class StorageBlockEntity extends BlockEntity implements MenuProvide
         productionIdentity = tag.hasUUID("ProductionIdentity") ? tag.getUUID("ProductionIdentity") : java.util.UUID.randomUUID();
         productionIdentityNeedsSave = !tag.hasUUID("ProductionIdentity");
         transferConfig.load(tag.get("RemoteReceiver"));
+        defaultVolume = tag.hasUUID("DefaultVolume") ? tag.getUUID("DefaultVolume") : null;
         recoveryArchive = null;
         programRecoveryArchive = null;
         archiveProtectedData();

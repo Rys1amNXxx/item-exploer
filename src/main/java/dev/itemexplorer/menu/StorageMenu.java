@@ -63,6 +63,7 @@ public final class StorageMenu extends AbstractContainerMenu {
     private long sentRevision = -2, sentSession;
     private long sentProgramRevision = -2, nextProgramRefresh;
     private String sentNasStamp = "";
+    private String sentDefaultVolume;
     private long sentTransferConfigRevision = -1;
     private ListTag transferTargets = new ListTag();
     private CableStorageAccess.Result nasAccess = new CableStorageAccess.Result(List.of(), 0, "checking");
@@ -87,6 +88,13 @@ public final class StorageMenu extends AbstractContainerMenu {
         addSlot(new ResultSlot(player, craftSlots, craftResult, 0, layout.craftingResultX(), layout.craftingResultY()));
         for (int row = 0; row < 3; row++) for (int col = 0; col < 3; col++)
             addSlot(new Slot(craftSlots, row * 3 + col, layout.craftingX() + col * 18, layout.craftingY() + row * 18));
+        if (blockEntity != null) {
+            volume = blockEntity.defaultVolume();
+            refreshMount();
+            StorageAccess initial = storage();
+            // Fall back only when opening; a disk disappearing during use must never redirect an item action.
+            if (initial == null || initial.isLocked()) { volume = ""; refreshMount(); }
+        }
     }
     public CompoundTag view() { return clientView; }
     public void acceptView(CompoundTag view) { clientView = view.copy(); }
@@ -95,6 +103,8 @@ public final class StorageMenu extends AbstractContainerMenu {
         restoreLocation(folder, requestedPage, StorageInventory.PAGE_SIZE);
     }
     public void restoreLocation(int folder, int requestedPage, int requestedSize) {
+        // Program windows originate on the local drive, regardless of the terminal's opening preference.
+        if (blockEntity != null && !volume.isEmpty()) { volume = ""; refreshMount(); }
         if (blockEntity != null && blockEntity.inventory().hasFolder(folder)) {
             currentFolder = folder; page = Math.max(0, requestedPage);
             pageSize = Math.max(StorageInventory.PAGE_SIZE, Math.min(StorageInventory.MAX_PAGE_SIZE, requestedSize));
@@ -216,6 +226,7 @@ public final class StorageMenu extends AbstractContainerMenu {
                 : storage.view(currentFolder, page, pageSize, message);
         page = view.getInt("Page");
         view.putBoolean("Available", storage != null); view.putLong("Session", session); view.putString("Volume", volume);
+        view.putString("DefaultVolume", blockEntity.defaultVolume());
         view.putLong("ProgramRevision", blockEntity.programs().revision());
         view.putBoolean("ProgramsAvailable", volume.isEmpty() && !searching && !blockEntity.programs().isLocked()
                 && !blockEntity.inventory().isLocked());
@@ -269,6 +280,7 @@ public final class StorageMenu extends AbstractContainerMenu {
         String nasStamp = devices.toString();
         if (!force && !catalogSent && !programRefresh && programRevision == sentProgramRevision
                 && transferConfigRevision == sentTransferConfigRevision
+                && blockEntity.defaultVolume().equals(sentDefaultVolume)
                 && revision == sentRevision && session == sentSession && nasStamp.equals(sentNasStamp)) return;
         CompoundTag view = currentSnapshot();
         if (force || catalogSent || !view.equals(sentView)) {
@@ -284,6 +296,7 @@ public final class StorageMenu extends AbstractContainerMenu {
         sentRevision = revision; sentSession = session; sentNasStamp = nasStamp;
         sentProgramRevision = blockEntity.programs().revision();
         sentTransferConfigRevision = transferConfigRevision;
+        sentDefaultVolume = blockEntity.defaultVolume();
         message = "";
     }
     @Override public void broadcastChanges() {
@@ -347,6 +360,10 @@ public final class StorageMenu extends AbstractContainerMenu {
                 if (storage == null) throw new IllegalArgumentException("disk_offline");
                 if (!storage.hasFolder(currentFolder)) currentFolder = 0;
                 switch (request.action()) {
+                    case SET_DEFAULT_VOLUME -> {
+                        if (!request.name().equals(volume)) throw new IllegalArgumentException("stale");
+                        blockEntity.setDefaultVolume(volume);
+                    }
                     case SORT -> {
                         if (request.id() != currentFolder) throw new IllegalArgumentException("stale");
                         storage.sort(currentFolder); page = 0; message = "";
