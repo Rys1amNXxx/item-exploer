@@ -106,4 +106,4 @@ Escape 按同样的层级返回。
 powershell -NoProfile -ExecutionPolicy Bypass -File .\dev.ps1 build runGameTestServer --console=plain
 ```
 
-自动验证包含库存原子提交及远程连接/配置规则，0.4.2 发布网络协议为 **13**，客户端和服务端需同步更新。
+自动验证包含库存原子提交及远程连接/配置规则，0.4.4 发布网络协议为 **14**，客户端和服务端需同步更新，不能与 0.4.3 混用。

@@ -1,17 +1,17 @@
 # Item Explorer / 物品资源管理器
 
 独立的 Minecraft Forge 存储模组，目标是用文件夹和资源管理器式界面管理游戏物品。
-当前发布版本为 **0.4.3**（物品合并与空格操作修复）：包含存储终端、目录树、NAS 硬盘、物品搜索、手动工作台、外部物流、基站结构、数据导线接入、终端物品发送、目录程序文件和原版机器自动加工。
+当前发布版本为 **0.4.4**（默认盘、界面材质包适配与硬盘显示修复）：包含存储终端、目录树、NAS 硬盘、物品搜索、手动工作台、外部物流、基站结构、数据导线接入、终端物品发送、目录程序文件和原版机器自动加工。
 项目仍在持续开发，容量、外观和交互可能继续调整。
 
 ## 下载与安装
 
-在 [GitHub Release v0.4.3](https://github.com/Rys1amNXxx/item-exploer/releases/tag/v0.4.3) 下载
-`itemexplorer-1.20.1-0.4.3.jar`，放入游戏实例或服务器的 `mods/` 目录；附件 `SHA256SUMS.txt` 提供下载校验值。
+在 [GitHub Release v0.4.4](https://github.com/Rys1amNXxx/item-exploer/releases/tag/v0.4.4) 下载
+`itemexplorer-1.20.1-0.4.4.jar`，放入游戏实例或服务器的 `mods/` 目录；附件 `SHA256SUMS.txt` 提供下载校验值。
 需要 **Minecraft 1.20.1、Forge 47.0.0 或更新的 47.x、64 位 Java 17**；不适用于 Fabric 或其他 Minecraft 版本。
-多人游戏的客户端和服务端需安装同一版本；0.4.3 继续使用网络协议 13，存档格式不变。升级前备份存档，并移除 `mods/` 中的旧版 Item Explorer JAR，避免重复加载。
+多人游戏的客户端和服务端需同步升级到 0.4.4；网络协议由 13 更新为 14，不能与 0.4.3 混用。已有终端和 NAS 硬盘数据继续兼容，默认盘设置作为可选字段保存。升级前备份存档，并移除 `mods/` 中的旧版 Item Explorer JAR，避免重复加载。
 [GitHub Release v0.4.0](https://github.com/Rys1amNXxx/item-exploer/releases/tag/v0.4.0) 中的旧 JAR 仍要求 Forge 47.4.23，降低限制需要更新到 0.4.1 或更新版本。
-本次修改见 [0.4.3 更新说明](docs/releases/v0.4.3.md)，中键排序见 [0.4.2 更新说明](docs/releases/v0.4.2.md)，Forge 兼容性调整见 [0.4.1 更新说明](docs/releases/v0.4.1.md)。
+本次修改见 [0.4.4 更新说明](docs/releases/v0.4.4.md)，物品合并修复见 [0.4.3 更新说明](docs/releases/v0.4.3.md)，中键排序见 [0.4.2 更新说明](docs/releases/v0.4.2.md)，Forge 兼容性调整见 [0.4.1 更新说明](docs/releases/v0.4.1.md)。
 
 ## 游戏中使用
 
@@ -44,7 +44,7 @@
 | 中键排序 | 鼠标未拿物品时，在右侧物品区按中键，合并当前目录可堆叠的同类条目，按物品注册 ID 排序并返回第一页；支持本地盘和 NAS 硬盘，顺序保存到存档 |
 | 搜索 | 点击“搜索”或 Ctrl+F，默认搜索当前盘的所有目录；可切换为当前目录及子目录 |
 | 定位搜索结果 | 选择结果点击“定位”，或双击结果，打开来源目录并高亮物品 |
-| 默认盘（开发中） | 切换到常用盘，点击路径右侧“设为默认盘”；以后打开这台终端直接进入该盘根目录 |
+| 默认盘 | 切换到常用盘，点击路径右侧“设为默认盘”；以后打开这台终端直接进入该盘根目录 |
 
 默认盘设置按终端保存，所有使用这台终端的玩家共用，重启世界后仍保留。
 设置跟随硬盘身份，改名、换盘位或换到仍可连接的 NAS 都不影响；打开终端时指定盘离线或处于数据保护状态，会暂用本地盘而不清除设置。
@@ -193,7 +193,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\dev.ps1 build
 powershell -NoProfile -ExecutionPolicy Bypass -File .\dev.ps1 runClient
 ```
 
-打包输出：`build/libs/itemexplorer-1.20.1-0.4.3.jar`。
+打包输出：`build/libs/itemexplorer-1.20.1-0.4.4.jar`。
 将此 JAR 放入安装了对应 Forge 的 Minecraft 1.20.1 实例的 `mods/` 目录。
 多人游戏的客户端与服务端都需要安装相同版本。当前开发构建继续读取 0.1.x
 使用的终端版本 1 存档及 0.2.x 硬盘数据；默认盘功能将网络协议升级为 14，客户端和服务端应使用同一构建。
