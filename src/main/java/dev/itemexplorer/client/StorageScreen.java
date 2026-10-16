@@ -945,7 +945,7 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
         if (awaitingVolume) return;
         if (type == net.minecraft.world.inventory.ClickType.QUICK_MOVE && slot != null
                 && slotId >= 0 && slotId < StorageMenu.PLAYER_SLOT_COUNT) {
-            if (!searching && !menu.view().getBoolean("Searching")) send(Action.DEPOSIT_SLOT, slotId, 0, 0, "");
+            if (slot.hasItem() && !searching && !menu.view().getBoolean("Searching")) send(Action.DEPOSIT_SLOT, slotId, 0, 0, "");
         } else super.slotClicked(slot, slotId, button, type);
     }
 

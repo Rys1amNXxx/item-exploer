@@ -57,6 +57,12 @@ public final class StorageInteractionTests {
         return new StorageNetwork.Request(1, entity.inventory().revision(), action, id, target, amount, "");
     }
 
+    private static String sentMessage(StorageMenu menu) throws ReflectiveOperationException {
+        var field = StorageMenu.class.getDeclaredField("sentView");
+        field.setAccessible(true);
+        return ((CompoundTag) field.get(menu)).getString("Message");
+    }
+
     private static int iron(ServerPlayer player) {
         return player.getInventory().items.stream().filter(s -> s.is(Items.IRON_INGOT)).mapToInt(ItemStack::getCount).sum();
     }
@@ -187,6 +193,51 @@ public final class StorageInteractionTests {
         menu.handle(request(entity, Action.DEPOSIT_CURSOR, 0, 0, 0).withSession(menu.session()));
         menu.handle(new StorageNetwork.Request(1, entity.inventory().revision(), Action.CREATE, 0, 0, 0, "Blocked").withSession(menu.session()));
         helper.assertTrue(iron(player) == 64 && menu.getCarried().getCount() == 5 && raw.equals(entity.inventory().save()), "Locked menu consumed player items or changed protected data");
+        helper.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void emptySlotsAndCursorDepositsRemainSilent(GameTestHelper helper) throws ReflectiveOperationException {
+        StorageBlockEntity entity = terminal(helper);
+        ServerPlayer player = player(helper, entity.getBlockPos());
+        StorageMenu menu = open(player, entity);
+        for (boolean full : new boolean[]{false, true}) {
+            if (full) {
+                int capacity = (int) entity.inventory().capacity();
+                entity.inventory().insert(new ItemStack(Items.COBBLESTONE, capacity), capacity, 0);
+            }
+            long total = entity.inventory().total(), revision = entity.inventory().revision();
+            // Cover both a main-inventory slot and a hotbar slot with valid contextual requests.
+            for (int slot : new int[]{0, 27}) {
+                menu.handle(request(entity, Action.DEPOSIT_SLOT, slot, 0, 0).withSession(menu.session()));
+                helper.assertTrue(sentMessage(menu).isEmpty(), "Empty slot reported a deposit error, full=" + full);
+            }
+            menu.handle(request(entity, Action.DEPOSIT_CURSOR, 0, 0, 0).withSession(menu.session()));
+            helper.assertTrue(sentMessage(menu).isEmpty(), "Empty cursor reported a deposit error, full=" + full);
+            helper.assertTrue(entity.inventory().total() == total && entity.inventory().revision() == revision
+                    && menu.getCarried().isEmpty() && player.getInventory().isEmpty(), "Empty deposit changed items or storage");
+        }
+        helper.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void fullStorageStillReportsRejectedNonemptyDeposits(GameTestHelper helper) throws ReflectiveOperationException {
+        StorageBlockEntity entity = terminal(helper);
+        int capacity = (int) entity.inventory().capacity();
+        helper.assertTrue(entity.inventory().insert(new ItemStack(Items.COBBLESTONE, capacity), capacity, 0) == capacity,
+                "Failed to fill storage for the deposit check");
+        ServerPlayer player = player(helper, entity.getBlockPos());
+        StorageMenu menu = open(player, entity);
+        player.getInventory().setItem(0, new ItemStack(Items.IRON_INGOT, 17));
+        menu.setCarried(new ItemStack(Items.DIAMOND, 5));
+        long revision = entity.inventory().revision();
+        menu.handle(request(entity, Action.DEPOSIT_SLOT, 27, 0, 0).withSession(menu.session()));
+        helper.assertTrue("full".equals(sentMessage(menu)), "A nonempty slot lost the full-storage warning");
+        menu.handle(request(entity, Action.DEPOSIT_CURSOR, 0, 0, 0).withSession(menu.session()));
+        helper.assertTrue("full".equals(sentMessage(menu)), "A nonempty cursor lost the full-storage warning");
+        helper.assertTrue(entity.inventory().total() == capacity && entity.inventory().revision() == revision
+                && iron(player) == 17 && menu.getCarried().is(Items.DIAMOND) && menu.getCarried().getCount() == 5,
+                "Rejected deposits changed player items or full storage");
         helper.succeed();
     }
 

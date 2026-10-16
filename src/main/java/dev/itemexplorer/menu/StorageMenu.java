@@ -313,6 +313,7 @@ public final class StorageMenu extends AbstractContainerMenu {
     private void depositSlot(StorageAccess storage, int index) {
         if (index < 0 || index >= PLAYER_SLOT_COUNT) throw new IllegalArgumentException("missing_item");
         Slot slot = slots.get(index); ItemStack source = slot.getItem();
+        if (source.isEmpty()) return;
         int count = storage.insert(source, source.getCount(), currentFolder);
         if (count == 0) { message = "full"; return; }
         source.shrink(count); slot.setChanged(); message = "deposited";
@@ -367,7 +368,9 @@ public final class StorageMenu extends AbstractContainerMenu {
                     case MOVE -> { requireVisibleEntry(storage, request.id()); message = storage.move(request.id(), request.target(), amount) > 0 ? "moved" : "no_change"; }
                     case WITHDRAW -> { requireVisibleEntry(storage, request.id()); message = StorageTransfers.withdraw(storage, player.getInventory(), request.id(), amount) > 0 ? "withdrawn" : "inventory_full"; }
                     case DEPOSIT_CURSOR -> {
-                        ItemStack carried = getCarried(); int count = storage.insert(carried, carried.getCount(), currentFolder);
+                        ItemStack carried = getCarried();
+                        if (carried.isEmpty()) break;
+                        int count = storage.insert(carried, carried.getCount(), currentFolder);
                         if (count > 0) { carried.shrink(count); setCarried(carried); message = "deposited"; } else message = "full";
                     }
                     case DEPOSIT_SLOT -> depositSlot(storage, request.id());
