@@ -1,17 +1,17 @@
 # Item Explorer / 物品资源管理器
 
 独立的 Minecraft Forge 存储模组，目标是用文件夹和资源管理器式界面管理游戏物品。
-当前发布版本为 **0.4.2**（当前目录中键排序）：包含存储终端、目录树、NAS 硬盘、物品搜索、手动工作台、外部物流、基站结构、数据导线接入、终端物品发送、目录程序文件和原版机器自动加工。
+当前发布版本为 **0.4.3**（物品合并与空格操作修复）：包含存储终端、目录树、NAS 硬盘、物品搜索、手动工作台、外部物流、基站结构、数据导线接入、终端物品发送、目录程序文件和原版机器自动加工。
 项目仍在持续开发，容量、外观和交互可能继续调整。
 
 ## 下载与安装
 
-在 [GitHub Release v0.4.2](https://github.com/Rys1amNXxx/item-exploer/releases/tag/v0.4.2) 下载
-`itemexplorer-1.20.1-0.4.2.jar`，放入游戏实例或服务器的 `mods/` 目录；附件 `SHA256SUMS.txt` 提供下载校验值。
+在 [GitHub Release v0.4.3](https://github.com/Rys1amNXxx/item-exploer/releases/tag/v0.4.3) 下载
+`itemexplorer-1.20.1-0.4.3.jar`，放入游戏实例或服务器的 `mods/` 目录；附件 `SHA256SUMS.txt` 提供下载校验值。
 需要 **Minecraft 1.20.1、Forge 47.0.0 或更新的 47.x、64 位 Java 17**；不适用于 Fabric 或其他 Minecraft 版本。
-多人游戏的客户端和服务端需安装同一版本；0.4.2 使用网络协议 13，需双方同步升级。升级前备份存档，并移除 `mods/` 中的旧版 Item Explorer JAR，避免重复加载。
+多人游戏的客户端和服务端需安装同一版本；0.4.3 继续使用网络协议 13，存档格式不变。升级前备份存档，并移除 `mods/` 中的旧版 Item Explorer JAR，避免重复加载。
 [GitHub Release v0.4.0](https://github.com/Rys1amNXxx/item-exploer/releases/tag/v0.4.0) 中的旧 JAR 仍要求 Forge 47.4.23，降低限制需要更新到 0.4.1 或更新版本。
-本次修改见 [0.4.2 更新说明](docs/releases/v0.4.2.md)，Forge 兼容性调整见 [0.4.1 更新说明](docs/releases/v0.4.1.md)。
+本次修改见 [0.4.3 更新说明](docs/releases/v0.4.3.md)，中键排序见 [0.4.2 更新说明](docs/releases/v0.4.2.md)，Forge 兼容性调整见 [0.4.1 更新说明](docs/releases/v0.4.1.md)。
 
 ## 游戏中使用
 
@@ -178,10 +178,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\dev.ps1 build
 powershell -NoProfile -ExecutionPolicy Bypass -File .\dev.ps1 runClient
 ```
 
-打包输出：`build/libs/itemexplorer-1.20.1-0.4.1.jar`。
+打包输出：`build/libs/itemexplorer-1.20.1-0.4.3.jar`。
 将此 JAR 放入安装了对应 Forge 的 Minecraft 1.20.1 实例的 `mods/` 目录。
-多人游戏的客户端与服务端都需要安装相同版本。0.4.1 继续读取 0.1.x
-使用的终端版本 1 存档及 0.2.x 硬盘数据；网络协议为 12，客户端和服务端应使用同一构建。
+多人游戏的客户端与服务端都需要安装相同版本。0.4.3 继续读取 0.1.x
+使用的终端版本 1 存档及 0.2.x 硬盘数据；网络协议为 13，客户端和服务端应使用同一构建。
 `-ExecutionPolicy Bypass` 仅适用于当前 PowerShell 子进程，不修改系统策略。
 
 如果 JDK 17 位于非标准目录，可在当前终端指定：
