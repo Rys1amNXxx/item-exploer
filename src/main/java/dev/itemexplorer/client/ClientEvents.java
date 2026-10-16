@@ -10,12 +10,14 @@ import dev.itemexplorer.menu.BaseStationMenu;
 import dev.itemexplorer.network.StorageNetwork;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.MenuScreens;
+import net.minecraft.server.packs.resources.ResourceManagerReloadListener;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.event.lifecycle.FMLClientSetupEvent;
 import net.minecraftforge.client.event.EntityRenderersEvent;
 import net.minecraftforge.client.event.ModelEvent;
+import net.minecraftforge.client.event.RegisterClientReloadListenersEvent;
 
 @Mod.EventBusSubscriber(modid = ItemExplorer.MOD_ID, bus = Mod.EventBusSubscriber.Bus.MOD, value = Dist.CLIENT)
 public final class ClientEvents {
@@ -27,6 +29,10 @@ public final class ClientEvents {
     @SubscribeEvent public static void registerModels(ModelEvent.RegisterAdditional event) {
         event.register(NasRenderer.TRAY); event.register(NasRenderer.BADGE);
         event.register(NasRenderer.FRONT_LED); event.register(NasRenderer.TOP_LED);
+    }
+
+    @SubscribeEvent public static void registerReloadListeners(RegisterClientReloadListenersEvent event) {
+        event.registerReloadListener((ResourceManagerReloadListener) VanillaGui::reload);
     }
 
     @SubscribeEvent

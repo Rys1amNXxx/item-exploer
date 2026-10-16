@@ -125,14 +125,12 @@ public final class LogisticsPortScreen extends AbstractContainerScreen<Logistics
     }
     @Override protected void renderLabels(GuiGraphics g, int x, int y) {}
     @Override protected void renderBg(GuiGraphics g, float partialTick, int mouseX, int mouseY) {
-        g.fill(leftPos, topPos, leftPos + imageWidth, topPos + imageHeight, 0xff373737);
-        g.fill(leftPos + 2, topPos + 2, leftPos + imageWidth - 2, topPos + imageHeight - 2, 0xffeeeeee);
-        g.fill(leftPos + 4, topPos + 4, leftPos + imageWidth - 4, topPos + imageHeight - 4, 0xffc6c6c6);
-        g.drawString(font, title, leftPos + 10, topPos + 10, 0xff303030, false);
+        VanillaGui.panel(g, leftPos, topPos, imageWidth, imageHeight);
+        g.drawString(font, title, leftPos + 10, topPos + 10, VanillaGui.panelText(0xff303030), VanillaGui.panelShadow());
         String status = Component.translatable("message.itemexplorer." + menu.view().getString("Status")).getString();
-        g.drawString(font, font.plainSubstrByWidth(status, 296), leftPos + 10, topPos + 29, 0xff505050, false);
-        g.drawString(font, label("port_folder"), leftPos + 10, topPos + 69, 0xff303030, false);
+        g.drawString(font, font.plainSubstrByWidth(status, 296), leftPos + 10, topPos + 29, VanillaGui.panelText(0xff505050), VanillaGui.panelShadow());
+        g.drawString(font, label("port_folder"), leftPos + 10, topPos + 69, VanillaGui.panelText(0xff303030), VanillaGui.panelShadow());
         String line = Util.getMillis() < noticeUntil ? Component.translatable("message.itemexplorer." + notice).getString() : label("port_apply_hint").getString();
-        g.drawString(font, font.plainSubstrByWidth(line, 296), leftPos + 10, topPos + 201, 0xff505050, false);
+        g.drawString(font, font.plainSubstrByWidth(line, 296), leftPos + 10, topPos + 201, VanillaGui.panelText(0xff505050), VanillaGui.panelShadow());
     }
 }

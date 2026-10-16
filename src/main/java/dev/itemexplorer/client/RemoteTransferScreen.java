@@ -225,7 +225,7 @@ public final class RemoteTransferScreen extends Screen {
         return font.plainSubstrByWidth(text, Math.max(0, maxWidth - font.width("…"))) + "…";
     }
     private void line(GuiGraphics g, Component text, int x, int y, int maxWidth, int color) {
-        g.drawString(font, fit(text.getString(), maxWidth), left + x, top + y, color, false);
+        g.drawString(font, fit(text.getString(), maxWidth), left + x, top + y, VanillaGui.panelText(color), VanillaGui.panelShadow());
     }
     private Component summary() {
         CompoundTag target = target();
@@ -333,7 +333,7 @@ public final class RemoteTransferScreen extends Screen {
         int y = 165;
         for (var text : font.split(label("receiving_hint"), panelWidth - 20)) {
             if (y > 187) break;
-            g.drawString(font, text, left + 10, top + y, MUTED, false); y += 11;
+            g.drawString(font, text, left + 10, top + y, VanillaGui.panelText(MUTED), VanillaGui.panelShadow()); y += 11;
         }
     }
     private void drawSend(GuiGraphics g) {
@@ -350,12 +350,12 @@ public final class RemoteTransferScreen extends Screen {
         } else line(g, label("select_item_short"), 10, 31, panelWidth - 20, MUTED);
         line(g, label("targets_page", targetPage + 1, targetPages()), 10, 51, panelWidth - 126, TEXT);
         if (targetList.isEmpty()) {
-            g.fill(left + 10, top + 67, left + panelWidth - 10, top + 155, 0xffbec5c1);
+            VanillaGui.recess(g, left + 11, top + 68, panelWidth - 22, 86);
             int y = 82;
             Component explanation = !config().getBoolean("StationConnected") ? label("no_station") : label("empty_targets");
             for (var text : font.split(explanation, panelWidth - 44)) {
                 if (y > 142) break;
-                g.drawString(font, text, left + 22, top + y, MUTED, false); y += 12;
+                g.drawString(font, text, left + 22, top + y, VanillaGui.recessText(0xffeeeeee), true); y += 12;
             }
         }
         line(g, label("quantity"), 10, 166, 39, TEXT);
@@ -364,8 +364,7 @@ public final class RemoteTransferScreen extends Screen {
     }
     @Override public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
         observeView(); updateWidgets(); renderBackground(g);
-        g.fill(left, top, left + panelWidth, top + PANEL_HEIGHT, 0xff343e45);
-        g.fill(left + 2, top + 2, left + panelWidth - 2, top + PANEL_HEIGHT - 2, 0xffd1d5d0);
+        VanillaGui.panel(g, left, top, panelWidth, PANEL_HEIGHT);
         if (settingsPage) drawSettings(g); else drawSend(g);
         Component status = !settingsPage && !sameContext() ? label("context_changed")
                 : Util.getMillis() < feedbackUntil ? feedback : Component.empty();

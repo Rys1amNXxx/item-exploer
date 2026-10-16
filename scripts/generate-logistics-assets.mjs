@@ -56,7 +56,16 @@ const hardware = {metal:'itemexplorer:block/hardware_metal',dark:'itemexplorer:b
 const diskBody = cube([3,1,6],[13,15,8.5],'metal');
 diskBody.faces.north.texture = '#front'; diskBody.faces.south.texture = '#dark';
 const diskElements = [diskBody,cube([5,.5,6.5],[11,1,8],'gold',directions.filter(f=>f!=='up'))];
-json('assets/itemexplorer/models/item/storage_disk.json',{parent:'minecraft:block/block',textures:{...hardware,particle:'#metal'},elements:diskElements,display:{gui:{rotation:[12,-18,0],translation:[0,0,0],scale:[1,1,1]},ground:{rotation:[0,0,0],translation:[0,3,0],scale:[.45,.45,.45]},fixed:{rotation:[0,180,0],scale:[.9,.9,.9]},thirdperson_righthand:{rotation:[0,0,0],translation:[0,2,0],scale:[.55,.55,.55]},firstperson_righthand:{rotation:[0,-90,20],translation:[1,3,1],scale:[.65,.65,.65]}}});
+// The capacity label is on NORTH. Turn it toward the GUI camera and the player.
+// Minecraft automatically mirrors the right-hand pose for the left hand.
+const diskDisplay = {
+    gui:{rotation:[12,162,0],translation:[0,0,0],scale:[1,1,1]},
+    ground:{rotation:[0,0,0],translation:[0,3,0],scale:[.45,.45,.45]},
+    fixed:{rotation:[0,180,0],scale:[.9,.9,.9]},
+    thirdperson_righthand:{rotation:[0,0,0],translation:[0,2,0],scale:[.55,.55,.55]},
+    firstperson_righthand:{rotation:[0,90,20],translation:[1,3,1],scale:[.65,.65,.65]},
+};
+json('assets/itemexplorer/models/item/storage_disk.json',{parent:'minecraft:block/block',textures:{...hardware,particle:'#metal'},elements:diskElements,display:diskDisplay});
 for(const [id] of tiers) json('assets/itemexplorer/models/item/disk_'+id+'.json',{parent:'itemexplorer:item/storage_disk',textures:{front:'itemexplorer:item/disk_'+id}});
 const textures = {...hardware,front:'itemexplorer:block/port_face',socket:'itemexplorer:block/port_socket',particle:'#metal'};
 // A 6 x 6 x 1 plate and a 3 x 3 x 1 socket. The face has a real hole under the socket.

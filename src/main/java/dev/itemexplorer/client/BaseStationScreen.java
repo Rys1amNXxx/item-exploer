@@ -72,13 +72,15 @@ public final class BaseStationScreen extends AbstractContainerScreen<BaseStation
     @Override protected void renderLabels(GuiGraphics graphics, int mouseX, int mouseY) {}
 
     private void line(GuiGraphics g, Component text, int x, int y, int color, int maxWidth) {
-        g.drawString(font, font.plainSubstrByWidth(text.getString(), maxWidth), leftPos + x, topPos + y, color, false);
+        g.drawString(font, font.plainSubstrByWidth(text.getString(), maxWidth), leftPos + x, topPos + y, VanillaGui.panelText(color), VanillaGui.panelShadow());
+    }
+
+    private void recessLine(GuiGraphics graphics, Component text, int offsetX, int offsetY, int color, int maxWidth) {
+        graphics.drawString(font, font.plainSubstrByWidth(text.getString(), maxWidth), leftPos + offsetX, topPos + offsetY, VanillaGui.recessText(color), true);
     }
 
     @Override protected void renderBg(GuiGraphics g, float partialTick, int mouseX, int mouseY) {
-        g.fill(leftPos, topPos, leftPos + imageWidth, topPos + imageHeight, 0xff343e45);
-        g.fill(leftPos + 2, topPos + 2, leftPos + imageWidth - 2, topPos + imageHeight - 2, 0xffeef0eb);
-        g.fill(leftPos + 4, topPos + 4, leftPos + imageWidth - 4, topPos + imageHeight - 4, 0xffc6cbcc);
+        VanillaGui.panel(g, leftPos, topPos, imageWidth, imageHeight);
         line(g, title, 10, 12, 0xff25343c, imageWidth - 104);
         if (guide) {
             drawGuide(g);
@@ -98,7 +100,7 @@ public final class BaseStationScreen extends AbstractContainerScreen<BaseStation
                     11, 78, 0xff53636b, imageWidth - 22);
             int y = 100;
             for (var line : font.split(label("ready_hint"), imageWidth - 32)) {
-                g.drawString(font, line, leftPos + 16, topPos + y, 0xff35434b, false);
+                g.drawString(font, line, leftPos + 16, topPos + y, VanillaGui.panelText(0xff35434b), VanillaGui.panelShadow());
                 y += 12;
             }
             line(g, label("no_power"), 11, imageHeight - 22, 0xff53636b, imageWidth - 22);
@@ -108,15 +110,15 @@ public final class BaseStationScreen extends AbstractContainerScreen<BaseStation
         for (int row = 0; row < rows && page * rows + row < issues.size(); row++) {
             var issue = issues.get(page * rows + row);
             int y = 80 + row * 24;
-            g.fill(leftPos + 9, topPos + y - 2, leftPos + imageWidth - 9, topPos + y + 21, 0xffe1e4df);
+            VanillaGui.recess(g, leftPos + 10, topPos + y - 1, imageWidth - 20, 21);
             String part = Component.translatable("block.itemexplorer.base_station_" + partId(issue.expectedPart())).getString();
-            line(g, label("issue", part, label("reason_" + issue.reason().name().toLowerCase(Locale.ROOT))),
-                    13, y, 0xff593d35, imageWidth - 26);
+            recessLine(g, label("issue", part, label("reason_" + issue.reason().name().toLowerCase(Locale.ROOT))),
+                    13, y, 0xffeeeeee, imageWidth - 26);
             var p = issue.pos();
-            line(g, label("position", p.getX(), p.getY(), p.getZ()), 13, y + 11, 0xff53636b, imageWidth - 26);
+            recessLine(g, label("position", p.getX(), p.getY(), p.getZ()), 13, y + 11, 0xffd0d0d0, imageWidth - 26);
         }
         int pages = Math.max(1, (issues.size() + rows - 1) / rows);
-        g.drawCenteredString(font, label("page", page + 1, pages), leftPos + imageWidth / 2, topPos + imageHeight - 20, 0xff35434b);
+        g.drawCenteredString(font, label("page", page + 1, pages), leftPos + imageWidth / 2, topPos + imageHeight - 20, VanillaGui.panelText(0xff35434b));
     }
 
     private static String partId(BaseStationStructure.Part part) {
@@ -150,7 +152,7 @@ public final class BaseStationScreen extends AbstractContainerScreen<BaseStation
         for (String key : keys) {
             for (var line : font.split(label(key), imageWidth - 24)) {
                 if (y + 9 > imageHeight - 8) return;
-                g.drawString(font, line, leftPos + 12, topPos + y, 0xff35434b, false);
+                g.drawString(font, line, leftPos + 12, topPos + y, VanillaGui.panelText(0xff35434b), VanillaGui.panelShadow());
                 y += 11;
             }
             y += 3;

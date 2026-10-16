@@ -253,23 +253,21 @@ public final class ProductionPortScreen extends AbstractContainerScreen<Producti
     }
     @Override protected void renderLabels(GuiGraphics g, int x, int y) {}
     private void icon(GuiGraphics g, ItemStack stack, int y) {
-        g.fill(leftPos + 10, topPos + y, leftPos + 28, topPos + y + 18, 0xff8b8b8b);
+        VanillaGui.slot(g, leftPos + 11, topPos + y + 1);
         if (!stack.isEmpty()) g.renderItem(stack, leftPos + 11, topPos + y + 1);
     }
     @Override protected void renderBg(GuiGraphics g, float partialTick, int mouseX, int mouseY) {
-        g.fill(leftPos, topPos, leftPos + imageWidth, topPos + imageHeight, 0xff373737);
-        g.fill(leftPos + 2, topPos + 2, leftPos + imageWidth - 2, topPos + imageHeight - 2, 0xffeeeeee);
-        g.fill(leftPos + 4, topPos + 4, leftPos + imageWidth - 4, topPos + imageHeight - 4, 0xffc6c6c6);
-        g.drawString(font, font.plainSubstrByWidth(title.getString(), 272), leftPos + 10, topPos + 9, 0xff303030, false);
-        g.drawString(font, label("name"), leftPos + 10, topPos + 43, 0xff303030, false);
-        g.drawString(font, label("count"), leftPos + 207, topPos + 43, 0xff303030, false);
+        VanillaGui.panel(g, leftPos, topPos, imageWidth, imageHeight);
+        g.drawString(font, font.plainSubstrByWidth(title.getString(), 272), leftPos + 10, topPos + 9, VanillaGui.panelText(0xff303030), VanillaGui.panelShadow());
+        g.drawString(font, label("name"), leftPos + 10, topPos + 43, VanillaGui.panelText(0xff303030), VanillaGui.panelShadow());
+        g.drawString(font, label("count"), leftPos + 207, topPos + 43, VanillaGui.panelText(0xff303030), VanillaGui.panelShadow());
         icon(g, selectedStack(false), 80); icon(g, selectedStack(true), 120);
         ItemStack result = ItemStack.of(menu.view().getCompound("Result")); icon(g, result, 162);
         String output = result.isEmpty() ? label("no_recipe").getString() : label("result", result.getHoverName()).getString();
-        g.drawString(font, font.plainSubstrByWidth(output, 167), leftPos + 32, topPos + 167, 0xff303030, false);
+        g.drawString(font, font.plainSubstrByWidth(output, 167), leftPos + 32, topPos + 167, VanillaGui.panelText(0xff303030), VanillaGui.panelShadow());
         Component progress = label("progress", menu.view().getInt("Completed"), Math.max(1, menu.view().getInt("Count")));
-        g.drawString(font, progress, leftPos + 310 - font.width(progress), topPos + 167, 0xff303030, false);
-        g.drawString(font, font.plainSubstrByWidth(status().getString(), 300), leftPos + 10, topPos + 184, 0xff505050, false);
-        g.drawString(font, font.plainSubstrByWidth(hint().getString(), 300), leftPos + 10, topPos + 199, 0xff505050, false);
+        g.drawString(font, progress, leftPos + 310 - font.width(progress), topPos + 167, VanillaGui.panelText(0xff303030), VanillaGui.panelShadow());
+        g.drawString(font, font.plainSubstrByWidth(status().getString(), 300), leftPos + 10, topPos + 184, VanillaGui.panelText(0xff505050), VanillaGui.panelShadow());
+        g.drawString(font, font.plainSubstrByWidth(hint().getString(), 300), leftPos + 10, topPos + 199, VanillaGui.panelText(0xff505050), VanillaGui.panelShadow());
     }
 }

@@ -62,7 +62,16 @@
 合成格属于每位玩家当前打开的窗口，关闭终端或打开程序窗口时，剩余材料会返还背包；
 背包装不下的材料按原版规则掉落。再次打开时合成格为空。
 
-窗口使用接近原版容器的灰色边框和凹槽，保留原版按钮。
+背包槽位、快捷栏和合成区直接复用原版工作台贴图，按钮继续使用原版控件。
+终端、NAS、物流接口、机器接口、基站和远程传输界面会随资源包中的对应原版 GUI 资源变化，无需额外制作本模组专用贴图。
+资源包须包含 `assets/minecraft/textures/gui/container/crafting_table.png` 或原版按钮贴图等对应资源；
+仅修改方块和物品的材质包不会改变界面。支持保持原版 UV 布局的高清贴图，也支持游戏内切换资源包或 F3+T 重载。
+窗口尺寸和布局仍由模组控制；文件夹 / 程序图标和状态标记保留模组定义，选中 / 悬停效果使用半透明覆盖。
+自定义大面板和列表没有对应的原版整图，因此从当前工作台贴图的多个背景区域、边框和九个合成格提取主色，绘制纯色背景和边框。
+这套规则不识别资源包名称，也不要求某个裁剪区域恰好没有装饰；不会把未知插画放大或反复平铺。
+配色只在资源重载时计算，保留贴图透明度；正文根据背景明暗、透明度和底色调整对比度，必要时添加阴影。
+背包区、快捷栏和合成格分别整块绘制，保留各槽位的独立装饰。大面板只继承配色，不复刻整屏插画或背景花纹。
+兼容范围是沿用 Minecraft 1.20.1 原版 GUI UV 布局的资源；重新排列控件、依赖其他模组的自定义 GUI 或跨区域插画不保证完整还原。
 根据屏幕可用空间从 320 × 234 扩展到 440 × 340 逻辑像素，每页可显示 6–25 个文件夹或物品。
 悬停仅补充物品信息、必要状态与简短快捷键提示；操作方式见上表。成功操作不显示常驻文字，失败提示短暂显示后消失。
 
@@ -220,6 +229,21 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\dev.ps1 runGameTestServer
 
 GameTest 使用独立的 `run-gametest/` 世界，测试代码和测试结构不打进发布 JAR。
 `build` 只进行构建，不代替 `runGameTestServer`；当前没有普通 JUnit 测试。
+
+GUI 资源包回归测试使用独立的 `work/gui-resource-client/`，首次运行需准备
+`work/remote-transfer-client/saves/Base Station Probe/` 测试世界，脚本会复制它。
+在 PowerShell 中运行：
+
+```powershell
+.\dev.ps1 -GradleArguments @('-I', 'scripts/gui-client-test.init.gradle', 'runClient')
+```
+
+测试覆盖六个界面、终端最小 / 最大布局，以及不同明暗、装饰布局、1× / 2× / 4× 分辨率和透明度的原版 GUI 替换贴图加载和移除。
+像素断言检查通用面板配色、半透明 / 全透明合成、独立的 36 个背包槽位，以及移除资源包后的恢复。
+可在参数数组中追加 `'-PguiResourcePack=C:\path\to\pack.zip'`（也支持资源包文件夹），
+额外复制其 GUI 资源到独立测试目录并生成截图，原资源包和游戏实例不会被修改。
+多个资源包使用 `'-PguiResourcePacks=C:\packs\first.zip|C:\packs\second.zip'`，可用 `'-PguiProbeDirectory=work/gui-resource-client-extra'` 指定另一独立测试目录。
+截图、像素断言和结果保存在 `work/gui-resource-client/`。测试代码和临时材质包不打进发布 JAR。
 GitHub Actions 会在 push / pull request 时使用 Forge 47.0.0 编译，
 再将同一版本的字节码分别运行于 47.0.0、47.3.22 和 47.4.23 的 GameTest 服务端。
 工作流保存各版本日志和最低版本构建的 JAR；也可以手动触发。

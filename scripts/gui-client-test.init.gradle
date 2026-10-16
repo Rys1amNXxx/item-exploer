@@ -1,0 +1,41 @@
+gradle.beforeProject { project -> project.afterEvaluate {
+    project.sourceSets.create('guiClientTest') {
+        java.srcDir 'src/guiClientTest/java'
+        compileClasspath += project.sourceSets.main.output + project.sourceSets.main.compileClasspath
+        runtimeClasspath += output + compileClasspath
+    }
+    def probeDirectory = project.file(project.findProperty('guiProbeDirectory') ?: 'work/gui-resource-client')
+    if (probeDirectory.parentFile.canonicalFile != project.file('work').canonicalFile
+            || !probeDirectory.name.startsWith('gui-resource-client'))
+        throw new GradleException('GUI acceptance directory must be work/gui-resource-client or a gui-resource-client-* sibling')
+    def clientRun = project.minecraft.runs.client
+    clientRun.workingDirectory = probeDirectory
+    clientRun.property 'itemexplorer.guiClientProbe', probeDirectory.absolutePath
+    if (project.hasProperty('guiResourcePack'))
+        clientRun.property 'itemexplorer.guiResourcePack', project.file(project.property('guiResourcePack')).absolutePath
+    if (project.hasProperty('guiResourcePacks'))
+        clientRun.property 'itemexplorer.guiResourcePacks', project.property('guiResourcePacks').toString()
+    clientRun.jvmArgs '-Xms256m', '-Xmx1536m'
+    clientRun.mods.itemexplorer.source project.sourceSets.guiClientTest
+    clientRun.args '--username', 'GuiProbe', '--width', '960', '--height', '720', '--quickPlaySingleplayer', 'Base Station Probe'
+    project.tasks.matching { it.name == 'runClient' }.configureEach {
+        doFirst {
+            def worldDirectory = new File(probeDirectory, 'saves/Base Station Probe')
+            if (!new File(worldDirectory, 'level.dat').isFile()) {
+                def sourceWorld = project.file('work/remote-transfer-client/saves/Base Station Probe')
+                if (!new File(sourceWorld, 'level.dat').isFile())
+                    throw new GradleException('Prepare the disposable work/remote-transfer-client/saves/Base Station Probe fixture first')
+                project.copy { from sourceWorld; into worldDirectory }
+            }
+            new File(probeDirectory, 'options.txt').setText('lang:zh_cn\nguiScale:2\npauseOnLostFocus:false\nrenderDistance:4\nsimulationDistance:5\nfullscreen:false\n', 'UTF-8')
+            def result = new File(probeDirectory, 'result.txt')
+            if (result.exists() && (!result.isFile() || !result.delete()))
+                throw new GradleException('Could not clear isolated GUI acceptance result.txt')
+        }
+        doLast {
+            def result = new File(probeDirectory, 'result.txt')
+            if (!result.isFile() || result.getText('UTF-8').trim() != 'PASS')
+                throw new GradleException('GUI resource-pack acceptance failed; inspect work/gui-resource-client/report.txt')
+        }
+    }
+} }

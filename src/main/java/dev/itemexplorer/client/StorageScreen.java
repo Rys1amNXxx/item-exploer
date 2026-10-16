@@ -18,7 +18,6 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.locale.Language;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.ItemStack;
 import org.lwjgl.glfw.GLFW;
@@ -33,7 +32,7 @@ import java.util.Set;
 
 public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
     private static final int TEXT = 0xff303030, MUTED = 0xff505050;
-    private static final ResourceLocation CRAFTING_TEXTURE = new ResourceLocation("minecraft", "textures/gui/container/crafting_table.png");
+    private static final int RECESS_TEXT = 0xffeeeeee, RECESS_MUTED = 0xffd0d0d0;
     private static final Set<String> QUIET_MESSAGES = Set.of("", "created", "renamed", "deleted", "moved",
             "deposited", "withdrawn", "no_change");
     private record Folder(int id, int parent, String name, int depth) {}
@@ -730,24 +729,23 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
     protected void renderLabels(GuiGraphics g, int mouseX, int mouseY) {}
 
     private void text(GuiGraphics g, Component value, int x, int y, int maxWidth, int color) {
-        g.drawString(font, fit(value.getString(), maxWidth), leftPos + x, topPos + y, color, false);
+        g.drawString(font, fit(value.getString(), maxWidth), leftPos + x, topPos + y, VanillaGui.panelText(color), VanillaGui.panelShadow());
     }
 
-    /** Pixel bevels follow the light/dark edges of vanilla inventory panels. */
+    private void recessText(GuiGraphics graphics, Component value, int offsetX, int offsetY, int maxWidth, int color) {
+        recessText(graphics, value, offsetX, offsetY, maxWidth, color, 0);
+    }
+
+    private void recessText(GuiGraphics graphics, Component value, int offsetX, int offsetY, int maxWidth, int color, int overlay) {
+        graphics.drawString(font, fit(value.getString(), maxWidth), leftPos + offsetX, topPos + offsetY, VanillaGui.recessText(color, overlay), true);
+    }
+
     private void panel(GuiGraphics g, int x, int y, int w, int h) {
-        int left = leftPos + x, top = topPos + y;
-        g.fill(left + 1, top, left + w - 1, top + h, 0xff373737);
-        g.fill(left, top + 1, left + w, top + h - 1, 0xff373737);
-        g.fill(left + 2, top + 2, left + w - 2, top + h - 2, 0xff555555);
-        g.fill(left + 2, top + 2, left + w - 3, top + h - 3, 0xffffffff);
-        g.fill(left + 4, top + 4, left + w - 4, top + h - 4, 0xffc6c6c6);
+        VanillaGui.panel(g, leftPos + x, topPos + y, w, h);
     }
 
     private void recess(GuiGraphics g, int x, int y, int w, int h) {
-        int left = leftPos + x, top = topPos + y;
-        g.fill(left - 1, top - 1, left + w + 1, top + h + 1, 0xffffffff);
-        g.fill(left - 1, top - 1, left + w, top + h, 0xff373737);
-        g.fill(left, top, left + w, top + h, 0xff8b8b8b);
+        VanillaGui.recess(g, leftPos + x, topPos + y, w, h);
     }
 
     private void folderIcon(GuiGraphics g, int x, int y, boolean small) {
@@ -807,31 +805,32 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
             Folder f = tree.get(i + folderScroll);
             int y = layout.browserY() + i * 12;
             boolean hover = hoveredFolder != null && hoveredFolder.id == f.id;
-            if (f.id == current() || hover) g.fill(leftPos + 8, topPos + y, leftPos + 102, topPos + y + 12,
-                    hover && (dragging || choosingTarget) ? 0xffb8c7a1 : f.id == current() ? 0xffd4d4d4 : 0xffb0b0b0);
+            int overlay = hover && (dragging || choosingTarget) ? 0x664bbd57 : f.id == current() ? 0x66ffffff : hover ? 0x33ffffff : 0;
+            if (overlay != 0) g.fill(leftPos + 8, topPos + y, leftPos + 102, topPos + y + 12, overlay);
             int x = 10 + Math.min(f.depth, 6) * 5;
-            if (parents.contains(f.id)) text(g, Component.literal(collapsed.contains(f.id) ? ">" : "v"), x, y + 2, 6, TEXT);
+            if (parents.contains(f.id)) recessText(g, Component.literal(collapsed.contains(f.id) ? ">" : "v"), x, y + 2, 6, RECESS_TEXT, overlay);
             folderIcon(g, x + 8, y + 2, true);
-            text(g, Component.literal(f.name), x + 20, y + 2, 80 - x, TEXT);
+            recessText(g, Component.literal(f.name), x + 20, y + 2, 80 - x, RECESS_TEXT, overlay);
         }
         if (tree.size() > layout.treeRows()) {
             int thumb = Math.max(6, layout.browserHeight() * layout.treeRows() / tree.size());
             int y = layout.browserY() + (layout.browserHeight() - thumb) * folderScroll / (tree.size() - layout.treeRows());
-            g.fill(leftPos + 102, topPos + y, leftPos + 104, topPos + y + thumb, 0xffdddddd);
+            g.fill(leftPos + 102, topPos + y, leftPos + 104, topPos + y + thumb, 0x99ffffff);
         }
         Tile hoveredTile = tileAt(mouseX, mouseY);
         if (searching) for (int i = 0; i < entries.size() && i < layout.searchRows(); i++) {
             Entry entry = entries.get(i); int x = layout.browserX(), y = layout.browserY() + i * 30;
             int w = layout.browserWidth() - 2;
             boolean active = entry.id == selected;
-            g.fill(leftPos + x + 1, topPos + y + 1, leftPos + x + w, topPos + y + 29,
-                    active ? 0xffdadada : hoveredTile != null && hoveredTile.entry == entry ? 0xffc1c1c1 : 0xffaaaaaa);
+            VanillaGui.recessBorder(g, leftPos + x + 1, topPos + y + 1, w - 1, 28);
+            int overlay = active ? 0x66ffffff : hoveredTile != null && hoveredTile.entry == entry ? 0x33ffffff : 0;
+            if (overlay != 0) g.fill(leftPos + x + 1, topPos + y + 1, leftPos + x + w, topPos + y + 29, overlay);
             if (active) g.renderOutline(leftPos + x, topPos + y, w + 1, 30, 0xffffffff);
             g.renderItem(entry.stack, leftPos + x + 4, topPos + y + 2);
             String count = "×" + compact(entry.count); int countWidth = Math.min(64, font.width(count));
-            text(g, entry.stack.getHoverName(), x + 24, y + 4, w - 30 - countWidth, TEXT);
-            text(g, Component.literal(count), x + w - countWidth - 4, y + 4, countWidth, TEXT);
-            text(g, Component.literal(entryPath(entry)), x + 24, y + 18, w - 28, MUTED);
+            recessText(g, entry.stack.getHoverName(), x + 24, y + 4, w - 30 - countWidth, RECESS_TEXT, overlay);
+            recessText(g, Component.literal(count), x + w - countWidth - 4, y + 4, countWidth, RECESS_TEXT, overlay);
+            recessText(g, Component.literal(entryPath(entry)), x + 24, y + 18, w - 28, RECESS_MUTED, overlay);
         }
         else for (int i = 0; i < tiles.size() && i < layout.pageSize(); i++) {
             Tile tile = tiles.get(i);
@@ -839,35 +838,32 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
             int y = layout.browserY() + (i / layout.columns()) * 30;
             int w = layout.cellWidth() - 2;
             boolean active = tile.entry != null && tile.entry.id == selected || tile.program != null && tile.program.id == selectedProgram;
-            int color = active ? 0xffdadada : hoveredTile == tile ? 0xffc1c1c1 : 0xffaaaaaa;
-            if (tile.folder != null && hoveredTile == tile && (dragging || choosingTarget)) color = 0xffb8c7a1;
-            g.fill(leftPos + x + 1, topPos + y + 1, leftPos + x + w, topPos + y + 29, color);
+            VanillaGui.recessBorder(g, leftPos + x + 1, topPos + y + 1, w - 1, 28);
+            int color = active ? 0x66ffffff : hoveredTile == tile ? 0x33ffffff : 0;
+            if (tile.folder != null && hoveredTile == tile && (dragging || choosingTarget)) color = 0x664bbd57;
+            if (color != 0) g.fill(leftPos + x + 1, topPos + y + 1, leftPos + x + w, topPos + y + 29, color);
             if (active) g.renderOutline(leftPos + x, topPos + y, w + 1, 30, 0xffffffff);
             if (tile.folder != null) {
                 folderIcon(g, x + 5, y + 3, false);
-                text(g, Component.literal(tile.folder.name), x + 4, y + 20, w - 6, TEXT);
+                recessText(g, Component.literal(tile.folder.name), x + 4, y + 20, w - 6, RECESS_TEXT, color);
             } else if (tile.program != null) {
                 programIcon(g, x + 5, y + 3, tile.program.active);
-                text(g, label(tile.program.active ? "program_active_badge" : "program_file_badge"), x + 24, y + 6, w - 25, MUTED);
-                text(g, Component.literal(tile.program.name), x + 4, y + 20, w - 6, TEXT);
+                recessText(g, label(tile.program.active ? "program_active_badge" : "program_file_badge"), x + 24, y + 6, w - 25, RECESS_MUTED, color);
+                recessText(g, Component.literal(tile.program.name), x + 4, y + 20, w - 6, RECESS_TEXT, color);
             } else {
                 Entry e = tile.entry;
                 g.renderItem(e.stack, leftPos + x + 4, topPos + y + 2);
-                text(g, Component.literal("×" + compact(e.count)), x + 23, y + 6, w - 24, TEXT);
-                text(g, e.stack.getHoverName(), x + 4, y + 20, w - 6, TEXT);
+                recessText(g, Component.literal("×" + compact(e.count)), x + 23, y + 6, w - 24, RECESS_TEXT, color);
+                recessText(g, e.stack.getHoverName(), x + 4, y + 20, w - 6, RECESS_TEXT, color);
             }
         }
-        if (tiles.isEmpty()) text(g, label(searching ? searchReady() ? "search_empty" : "search_loading" : "empty"),
-                layout.browserX() + 12, layout.browserY() + 12, layout.browserWidth() - 24, TEXT);
+        if (tiles.isEmpty()) recessText(g, label(searching ? searchReady() ? "search_empty" : "search_loading" : "empty"),
+                layout.browserX() + 12, layout.browserY() + 12, layout.browserWidth() - 24, RECESS_TEXT);
         text(g, label("quantity"), layout.controlsX(), layout.controlsY() + 5, 26, TEXT);
         text(g, label("crafting"), layout.craftingX(), layout.inventoryY() + 3, 104, TEXT);
-        // Preserve the vanilla arrow spacing and larger result-slot frame relative to the 3x3 grid.
-        g.blit(CRAFTING_TEXTURE, leftPos + layout.craftingX() + 60, topPos + layout.craftingResultY(),
-                90, 35, 22, 15);
-        g.blit(CRAFTING_TEXTURE, leftPos + layout.craftingResultX() - 5, topPos + layout.craftingResultY() - 5,
-                119, 30, 26, 26);
-        for (var slot : menu.slots)
-            if (slot.index != StorageMenu.CRAFT_RESULT_SLOT) recess(g, slot.x, slot.y, 16, 16);
+        VanillaGui.crafting(g, leftPos + layout.craftingX(), topPos + layout.craftingY(),
+                leftPos + layout.craftingResultX(), topPos + layout.craftingResultY());
+        VanillaGui.playerInventory(g, leftPos + layout.inventoryX(), topPos + layout.inventoryY());
     }
 
     private void renderError(GuiGraphics g) {
@@ -879,7 +875,8 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
         int x = 12, y = layout.controlsY() - h - 3;
         g.pose().pushPose(); g.pose().translate(0, 0, 250);
         panel(g, x, y, imageWidth - 24, h);
-        for (int i = 0; i < lines.size(); i++) g.drawString(font, lines.get(i), leftPos + x + 8, topPos + y + 6 + i * font.lineHeight, 0xffa02020, false);
+        for (int i = 0; i < lines.size(); i++) g.drawString(font, lines.get(i), leftPos + x + 8, topPos + y + 6 + i * font.lineHeight,
+                VanillaGui.panelText(0xffa02020), VanillaGui.panelShadow());
         g.pose().popPose();
     }
 
