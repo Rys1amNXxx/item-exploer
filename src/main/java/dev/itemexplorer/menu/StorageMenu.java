@@ -346,6 +346,10 @@ public final class StorageMenu extends AbstractContainerMenu {
                 if (storage == null) throw new IllegalArgumentException("disk_offline");
                 if (!storage.hasFolder(currentFolder)) currentFolder = 0;
                 switch (request.action()) {
+                    case SORT -> {
+                        if (request.id() != currentFolder) throw new IllegalArgumentException("stale");
+                        storage.sort(currentFolder); page = 0; message = "";
+                    }
                     case OPEN -> { if (!storage.hasFolder(request.id())) throw new IllegalArgumentException("invalid_folder"); currentFolder = request.id(); page = 0; }
                     case PAGE -> page = (int) Math.min(1000, amount);
                     case CREATE -> { currentFolder = storage.createFolder(currentFolder, request.name()); page = 0; message = "created"; }

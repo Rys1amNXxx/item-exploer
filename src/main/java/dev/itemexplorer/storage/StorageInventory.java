@@ -14,6 +14,7 @@ import net.minecraft.world.item.ItemStack;
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -153,6 +154,26 @@ public final class StorageInventory implements StorageAccess {
     private Entry matching(int folder, ItemStack stack) {
         return entries.values().stream().filter(e -> e.folder == folder && ItemStack.isSameItemSameTags(e.stack, stack))
                 .findFirst().orElse(null);
+    }
+
+    /** Sort the whole folder, retaining entry identities, samples and other folders' positions. */
+    @Override public void sort(int folder) {
+        requireWritable();
+        requireFolder(folder);
+        List<Entry> current = entries.values().stream().filter(entry -> entry.folder == folder).toList();
+        List<Entry> sorted = current.stream().sorted(Comparator
+                .comparing((Entry entry) -> String.valueOf(ForgeRegistries.ITEMS.getKey(entry.stack.getItem())))
+                .thenComparingInt(Entry::id)).toList();
+        if (current.equals(sorted)) return;
+        Map<Integer, Entry> prepared = new LinkedHashMap<>();
+        var iterator = sorted.iterator();
+        for (Entry entry : entries.values()) {
+            Entry next = entry.folder == folder ? iterator.next() : entry;
+            prepared.put(next.id, next);
+        }
+        entries = prepared;
+        // Only order changed: search names, entry membership and transfer activity remain valid.
+        touch();
     }
 
     public int insert(ItemStack stack, int requested, int folder, boolean simulate) {

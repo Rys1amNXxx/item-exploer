@@ -22,6 +22,7 @@ public interface StorageAccess {
     void renameFolder(int id, String name);
     int deleteFolder(int id);
     long move(int entry, int target, long requested);
+    void sort(int folder);
     int insert(ItemStack stack, int requested, int folder, boolean simulate);
     ItemStack take(int entry, long requested, boolean simulate);
     CompoundTag view(int folder, int page, int pageSize, String message);

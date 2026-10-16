@@ -44,7 +44,7 @@ public final class SearchClientProbe {
     private static volatile Throwable fixtureFailure;
     private static volatile int folderA, folderB, deepFolder, deepEntry;
     private static int ticks, stage, stageSince, largeSavedPage;
-    private static long started, takeView;
+    private static long started, takeView, sortRevision;
     private static String pendingScreenshot, completedScreenshot;
     private static CompoundTag renderedView;
     private static Path root;
@@ -128,13 +128,17 @@ public final class SearchClientProbe {
                 case 1 -> {
                     if (view.getInt("Current") != folderA || view.getBoolean("Searching")) return;
                     check(view.getInt("Page") == 0, "Anchor page differs from zero");
-                    openSearch(screen); type(screen, "铁锭"); advance(2);
+                    sortRevision = view.getLong("Revision");
+                    click(screen, layout.browserX() + 10, layout.browserY() + 10, GLFW.GLFW_MOUSE_BUTTON_MIDDLE);
+                    advance(14);
                 }
                 case 2 -> {
                     if (!ready(screen, view, 5, false)) return;
                     check(view.getInt("SearchRoot") == folderA, "Search was not anchored to starting folder");
                     log("PASS Chinese query typed through StorageScreen.charTyped: entire drive has 5 separate iron entries");
-                    screenshot("search-minimum-full-drive.png"); advance(3);
+                    sortRevision = view.getLong("Revision");
+                    click(screen, layout.browserX() + 10, layout.browserY() + 10, GLFW.GLFW_MOUSE_BUTTON_MIDDLE);
+                    advance(15);
                 }
                 case 3 -> {
                     if (!captured("search-minimum-full-drive.png")) return;
@@ -207,6 +211,23 @@ public final class SearchClientProbe {
                     log("PASS all checks; screenshots=3; ticks=" + ticks + "; real client + integrated server; input via screen methods; no OS input");
                     Files.writeString(root.resolve("result.txt"), "PASS\n", StandardCharsets.UTF_8);
                     done = true; mc.stop();
+                }
+                case 14 -> {
+                    if (view.getLong("Revision") <= sortRevision) return;
+                    var entries = view.getList("Entries", Tag.TAG_COMPOUND);
+                    check(entries.size() == 2 && ItemStack.of(entries.getCompound(0).getCompound("Stack")).is(Items.DIAMOND)
+                            && ItemStack.of(entries.getCompound(1).getCompound("Stack")).is(Items.IRON_INGOT), "Middle-click did not sort folder items");
+                    check(java.util.Arrays.equals(view.getIntArray("PageFolders"), new int[]{deepFolder}), "Middle-click changed child folders");
+                    check(view.getInt("Current") == folderA && view.getLong("Total") == 174 && view.getInt("Page") == 0,
+                            "Middle-click changed location or quantities");
+                    log("PASS middle-click sorts the current folder by item type and preserves quantities");
+                    openSearch(screen); type(screen, "铁锭"); advance(2);
+                }
+                case 15 -> {
+                    if (ticks - stageSince < 6) return;
+                    check(view.getBoolean("Searching") && view.getLong("Revision") == sortRevision, "Middle-click mutated search results");
+                    log("PASS middle-click during search leaves storage untouched");
+                    screenshot("search-minimum-full-drive.png"); advance(3);
                 }
                 default -> throw new IllegalStateException("Unknown stage " + stage);
             }

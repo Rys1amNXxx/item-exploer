@@ -168,7 +168,7 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
     private void send(Action action, int id, int target, long amount, String text) {
         if (!menu.view().contains("Revision") || awaitingVolume) return;
         if (searching && (action == Action.MOVE || action == Action.WITHDRAW
-                || action == Action.DEPOSIT_CURSOR || action == Action.DEPOSIT_SLOT)) return;
+                || action == Action.DEPOSIT_CURSOR || action == Action.DEPOSIT_SLOT || action == Action.SORT)) return;
         if (action == Action.MOVE && target < 0) { error = "cross_disk"; errorUntil = Util.getMillis() + 4500; return; }
         StorageNetwork.request(new StorageNetwork.Request(menu.containerId, menu.view().getLong("Revision"), action, id, target, amount, text, menu.view().getLong("Session")));
         if (action == Action.SELECT_VOLUME) { awaitingVolume = true; volumeRequestedAt = Util.getMillis(); }
@@ -684,7 +684,7 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
                         lines.add(Component.translatable("gui.itemexplorer.exact_count", tile.entry.count));
                         if (searching) {
                             lines.add(Component.translatable("gui.itemexplorer.search_source", entryPath(tile.entry)));
-                        }
+                        } else lines.add(label("sort_hint"));
                         g.renderTooltip(font, lines, java.util.Optional.empty(), mouseX, mouseY);
                     }
                     else if (tile.program != null) {
@@ -879,6 +879,16 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
             if (modalOk.mouseClicked(x, y, button) || modalCancel.mouseClicked(x, y, button)
                     || modalKind.visible && modalKind.mouseClicked(x, y, button)) return true;
             folderName.mouseClicked(x, y, button); setFocused(folderName); return true;
+        }
+        if (button == GLFW.GLFW_MOUSE_BUTTON_MIDDLE
+                && inside(x, y, layout.browserX(), layout.browserY(), layout.browserWidth(), layout.browserHeight())) {
+            if (!searching && !menu.view().getBoolean("Searching") && menu.getCarried().isEmpty()
+                    && !dragging && menu.view().getBoolean("Available") && !menu.view().getBoolean("Locked")) {
+                selected = selectedProgram = doubleClickEntry = dragCandidate = -1;
+                choosingTarget = false;
+                send(Action.SORT, current(), 0, 0, "");
+            }
+            return true;
         }
         Folder f = treeFolderAt(x, y);
         if (f != null && button == 0) {

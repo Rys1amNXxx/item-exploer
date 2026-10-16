@@ -23,6 +23,7 @@
   "gui.itemexplorer.empty": "此文件夹为空",
   "gui.itemexplorer.choose_target": "选择目标文件夹 · Esc 取消",
   "gui.itemexplorer.crafting": "工作台",
+  "gui.itemexplorer.sort_hint": "中键：按物品类型排序当前目录",
   "message.itemexplorer.created": "文件夹已创建",
   "message.itemexplorer.renamed": "名称已修改",
   "message.itemexplorer.deleted": "空文件夹已删除",
