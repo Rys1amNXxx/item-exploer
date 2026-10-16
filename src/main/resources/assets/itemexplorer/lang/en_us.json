@@ -23,7 +23,7 @@
   "gui.itemexplorer.empty": "This folder is empty",
   "gui.itemexplorer.choose_target": "Choose a folder; Esc to cancel",
   "gui.itemexplorer.crafting": "Crafting",
-  "gui.itemexplorer.sort_hint": "Middle-click: sort this folder by item type",
+  "gui.itemexplorer.sort_hint": "Middle-click: merge matching items and sort this folder",
   "message.itemexplorer.created": "Folder created",
   "message.itemexplorer.renamed": "Name changed",
   "message.itemexplorer.deleted": "Empty folder deleted",

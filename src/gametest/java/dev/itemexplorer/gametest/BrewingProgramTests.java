@@ -225,4 +225,33 @@ public final class BrewingProgramTests {
                 && f.stand.saveWithoutMetadata().getByte("Fuel") == 19, "Blaze ingredient was confused with brewing fuel");
         h.succeed();
     }
+
+    @GameTest(template = "empty")
+    public static void emptyTagBlazePowderKeepsFuelAndReagentAccounting(GameTestHelper h) {
+        ItemStack base = PotionUtils.setPotion(new ItemStack(Items.POTION), Potions.AWKWARD);
+        ItemStack powder = new ItemStack(Items.BLAZE_POWDER);
+        powder.setTag(new CompoundTag());
+        ItemStack result = PotionUtils.setPotion(new ItemStack(Items.POTION), Potions.STRENGTH);
+        Fixture f = fixture(h, base, powder, result, 1, 1, 0, 1);
+        f.port.start(); f.port.workTick();
+        status(h, f, "production_missing_fuel");
+        h.assertTrue(f.stand.isEmpty() && count(f.storage(), f.input, base) == 1
+                && count(f.storage(), f.auxiliary, powder) == 1,
+                "Empty-tag powder was spent before both fuel and reagent were available");
+
+        f.storage().insert(new ItemStack(Items.BLAZE_POWDER), 1, f.auxiliary);
+        h.assertTrue(count(f.storage(), f.auxiliary, powder) == 2,
+                "Untagged restock did not merge with the saved empty-tag powder");
+        f.port.workTick();
+        h.assertTrue(f.stand.getItem(4).getTag() != null && f.stand.getItem(4).getTag().isEmpty(),
+                "Fixture did not commit empty-tag powder to the real blaze slot");
+        f.port.workTick(); // Check ownership before vanilla consumes the powder.
+        status(h, f, "production_running");
+        brew(f, 410);
+        h.assertTrue(count(f.storage(), f.output, result) == 1 && count(f.storage(), f.input, base) == 0
+                && count(f.storage(), f.auxiliary, powder) == 0 && f.storage().total() == 1
+                && f.stand.saveWithoutMetadata().getByte("Fuel") == 19 && f.stand.isEmpty(),
+                "Empty-tag blaze powder was confused with brewing fuel or lost recipe materials");
+        status(h, f, "production_complete"); h.succeed();
+    }
 }

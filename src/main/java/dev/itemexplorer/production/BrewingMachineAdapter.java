@@ -12,6 +12,7 @@ import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.BrewingStandBlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraftforge.common.brewing.BrewingRecipeRegistry;
+import net.minecraftforge.items.ItemHandlerHelper;
 
 /** Controls one bottle in a real brewing stand. The stand remains responsible for brewing and fuel use. */
 public final class BrewingMachineAdapter implements MachineAdapter {
@@ -47,7 +48,7 @@ public final class BrewingMachineAdapter implements MachineAdapter {
     }
     private static boolean same(ItemStack a, ItemStack b) {
         return a.isEmpty() ? b.isEmpty() : !b.isEmpty() && a.getCount() == b.getCount()
-                && ItemStack.isSameItemSameTags(a, b);
+                && ItemHandlerHelper.canItemStacksStack(a, b);
     }
     private static IllegalArgumentException failure(String reason) { return new IllegalArgumentException(reason); }
     private static ItemStack bottle(BlockEntity machine, FurnaceProgram program) {
@@ -110,10 +111,10 @@ public final class BrewingMachineAdapter implements MachineAdapter {
         if (!stand.getItem(BLAZE).isEmpty()) throw failure("production_interference");
         ItemStack sample = new ItemStack(Items.BLAZE_POWDER);
         var powder = inventory.entries().stream().filter(e -> e.folder() == program.fuelFolder()
-                && ItemStack.isSameItemSameTags(e.stack(), sample)).findFirst().orElse(null);
+                && ItemHandlerHelper.canItemStacksStack(e.stack(), sample)).findFirst().orElse(null);
         if (powder == null) throw failure("production_missing_blaze_powder");
         // When blaze powder is also the recipe reagent, reserve a second unit before spending fuel.
-        if (ItemStack.isSameItemSameTags(program.fuel(), sample) && fuel(machine).isEmpty() && powder.count() < 2)
+        if (ItemHandlerHelper.canItemStacksStack(program.fuel(), sample) && fuel(machine).isEmpty() && powder.count() < 2)
             throw failure("production_missing_fuel");
         ItemStack taken = inventory.take(powder.id(), 1, false);
         stand.setItem(BLAZE, taken);

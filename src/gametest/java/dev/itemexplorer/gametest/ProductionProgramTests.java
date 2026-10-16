@@ -14,6 +14,8 @@ import net.minecraft.core.Direction;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.Tag;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
@@ -131,6 +133,40 @@ public final class ProductionProgramTests {
         f.port.workTick(); cook(f, 240);
         h.assertTrue(count(f.storage(), f.output, Items.GLASS) == 1 && count(f.storage(), other, Items.COAL) == 3,
                 "Restocking did not resume safely with a new entry ID"); h.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void sortingLegacyEmptyTagSamplesKeepsTheirSavedProgramRunning(GameTestHelper h) {
+        Fixture f = fixture(h, 3, Items.COAL, 2, 2);
+        CompoundTag legacy = (CompoundTag) f.storage().save();
+        ListTag rows = legacy.getList("Entries", Tag.TAG_COMPOUND);
+        CompoundTag sand = rows.getCompound(0).copy(), coal = rows.getCompound(1).copy();
+        int sandId = legacy.getInt("NextEntry"), coalId = sandId + 1;
+        sand.putInt("Id", sandId); sand.putInt("Count", 2);
+        coal.putInt("Id", coalId); coal.putInt("Count", 1);
+        sand.getCompound("Stack").put("tag", new CompoundTag());
+        coal.getCompound("Stack").put("tag", new CompoundTag());
+        rows.add(sand); rows.add(coal); legacy.putInt("NextEntry", coalId + 1);
+        f.storage().load(legacy);
+        h.assertTrue(!f.storage().isLocked() && f.storage().entries().size() == 4,
+                "Legacy null/empty-tag entries did not load separately");
+        f.port.configure("旧空标签样本", f.input, f.fuel, f.output, sandId, coalId, 2);
+        var selected = f.port.runtimeView();
+        h.assertTrue(selected.getCompound("Input").contains("tag") && selected.getCompound("Fuel").contains("tag"),
+                "Program did not capture the legacy empty-tag samples");
+
+        f.storage().sort(f.input); f.storage().sort(f.fuel);
+        h.assertTrue(f.storage().entry(sandId) == null && f.storage().entry(coalId) == null
+                && f.storage().entries().size() == 2 && f.storage().total() == 8
+                && !f.storage().entry(entry(f.storage(), f.input, Items.SAND)).stack().save(new CompoundTag()).contains("tag")
+                && !f.storage().entry(entry(f.storage(), f.fuel, Items.COAL)).stack().save(new CompoundTag()).contains("tag"),
+                "Sort did not merge into the original untagged entries without changing quantities");
+        f.port.start(); f.port.workTick(); cook(f, 440);
+        h.assertTrue(count(f.storage(), f.input, Items.SAND) == 3 && count(f.storage(), f.output, Items.GLASS) == 2
+                && count(f.storage(), f.fuel, Items.COAL) == 2 && f.storage().total() == 7
+                && f.furnace.isEmpty() && f.port.runtimeView().getInt("Completed") == 2,
+                "Merging selected sample IDs interrupted the old program or lost materials");
+        status(h, f, "production_complete"); h.succeed();
     }
 
     @GameTest(template = "empty")

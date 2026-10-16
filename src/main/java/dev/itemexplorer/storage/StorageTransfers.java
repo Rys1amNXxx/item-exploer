@@ -2,6 +2,7 @@ package dev.itemexplorer.storage;
 
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.ItemStack;
+import net.minecraftforge.items.ItemHandlerHelper;
 
 public final class StorageTransfers {
     private StorageTransfers() {}
@@ -16,7 +17,7 @@ public final class StorageTransfers {
             for (int slot = 0; slot < 36 && remaining > 0; slot++) {
                 ItemStack current = inventory.getItem(slot);
                 if ((pass == 0 && current.isEmpty()) || (pass == 1 && !current.isEmpty())) continue;
-                if (!current.isEmpty() && !ItemStack.isSameItemSameTags(current, entry.stack())) continue;
+                if (!current.isEmpty() && !ItemHandlerHelper.canItemStacksStack(current, entry.stack())) continue;
                 int room = Math.min(inventory.getMaxStackSize(), entry.stack().getMaxStackSize()) - current.getCount();
                 if (room <= 0) continue;
                 ItemStack taken = storage.take(entryId, Math.min(remaining, room));

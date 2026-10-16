@@ -19,6 +19,7 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.storage.LevelResource;
+import net.minecraftforge.items.ItemHandlerHelper;
 
 import java.util.UUID;
 
@@ -102,7 +103,7 @@ public final class ProductionPortBlockEntity extends BlockEntity {
                 + ":" + (machine == null ? "" : System.identityHashCode(machine));
     }
     private static boolean same(ItemStack a, ItemStack b) {
-        return a.isEmpty() ? b.isEmpty() : !b.isEmpty() && a.getCount() == b.getCount() && ItemStack.isSameItemSameTags(a, b);
+        return a.isEmpty() ? b.isEmpty() : !b.isEmpty() && a.getCount() == b.getCount() && ItemHandlerHelper.canItemStacksStack(a, b);
     }
     private static void folders(StorageInventory inventory, int... ids) {
         for (int id : ids) if (!inventory.hasFolder(id)) throw failure("production_invalid_folder");
@@ -236,7 +237,7 @@ public final class ProductionPortBlockEntity extends BlockEntity {
         inventoryFault();
     }
     private static StorageInventory.Entry find(StorageInventory inventory, int folder, ItemStack sample) {
-        return inventory.entries().stream().filter(e -> e.folder() == folder && ItemStack.isSameItemSameTags(e.stack(), sample)).findFirst().orElse(null);
+        return inventory.entries().stream().filter(e -> e.folder() == folder && ItemHandlerHelper.canItemStacksStack(e.stack(), sample)).findFirst().orElse(null);
     }
     private static boolean room(StorageInventory inventory, int folder, ItemStack stack) {
         try { return inventory.insert(stack, stack.getCount(), folder, true) == stack.getCount(); }

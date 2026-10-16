@@ -7,6 +7,7 @@ import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.NbtIo;
 import net.minecraft.nbt.Tag;
 import net.minecraft.network.chat.Component;
+import net.minecraftforge.items.ItemHandlerHelper;
 import net.minecraftforge.registries.ForgeRegistries;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.ItemStack;
@@ -14,6 +15,7 @@ import net.minecraft.world.item.ItemStack;
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -152,11 +154,11 @@ public final class StorageInventory implements StorageAccess {
     }
 
     private Entry matching(int folder, ItemStack stack) {
-        return entries.values().stream().filter(e -> e.folder == folder && ItemStack.isSameItemSameTags(e.stack, stack))
+        return entries.values().stream().filter(e -> e.folder == folder && ItemHandlerHelper.canItemStacksStack(e.stack, stack))
                 .findFirst().orElse(null);
     }
 
-    /** Sort the whole folder, retaining entry identities, samples and other folders' positions. */
+    /** Merge equivalent entries and sort the whole folder, retaining the oldest IDs and samples. */
     @Override public void sort(int folder) {
         requireWritable();
         requireFolder(folder);
@@ -164,15 +166,32 @@ public final class StorageInventory implements StorageAccess {
         List<Entry> sorted = current.stream().sorted(Comparator
                 .comparing((Entry entry) -> String.valueOf(ForgeRegistries.ITEMS.getKey(entry.stack.getItem())))
                 .thenComparingInt(Entry::id)).toList();
-        if (current.equals(sorted)) return;
+        List<Entry> merged = new ArrayList<>();
+        int groupStart = 0;
+        for (Entry entry : sorted) {
+            if (!merged.isEmpty() && !ItemStack.isSameItem(merged.get(merged.size() - 1).stack, entry.stack))
+                groupStart = merged.size();
+            int match = -1;
+            for (int i = groupStart; i < merged.size(); i++) {
+                if (ItemHandlerHelper.canItemStacksStack(merged.get(i).stack, entry.stack)) { match = i; break; }
+            }
+            if (match < 0) merged.add(entry);
+            else {
+                Entry retained = merged.get(match);
+                merged.set(match, new Entry(retained.id, folder, retained.stack, retained.count + entry.count));
+            }
+        }
+        if (current.equals(merged)) return;
         Map<Integer, Entry> prepared = new LinkedHashMap<>();
-        var iterator = sorted.iterator();
+        var iterator = merged.iterator();
         for (Entry entry : entries.values()) {
+            if (entry.folder == folder && !iterator.hasNext()) continue;
             Entry next = entry.folder == folder ? iterator.next() : entry;
             prepared.put(next.id, next);
         }
         entries = prepared;
-        // Only order changed: search names, entry membership and transfer activity remain valid.
+        if (merged.size() != current.size()) searchRevision++;
+        // Sorting and consolidation preserve total quantity and do not count as transfer activity.
         touch();
     }
 
@@ -434,7 +453,10 @@ public final class StorageInventory implements StorageAccess {
             if (!acceptsItem(stack)) {
                 throw new IllegalArgumentException("nested_device");
             }
-            if (matching(folder, stack) != null) throw new IllegalArgumentException("duplicate_entry");
+            // Older saves may contain both absent-tag and empty-tag entries; sorting can merge them.
+            // Keep rejecting exact duplicate samples as before, without changing saved item data.
+            if (entries.values().stream().anyMatch(entry -> entry.folder == folder
+                    && ItemStack.isSameItemSameTags(entry.stack, stack))) throw new IllegalArgumentException("duplicate_entry");
             entries.put(id, new Entry(id, folder, stack, count));
             nextEntry = Math.max(nextEntry, id + 1);
             total += count;
