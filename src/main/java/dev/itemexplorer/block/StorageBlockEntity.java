@@ -29,6 +29,7 @@ public final class StorageBlockEntity extends BlockEntity implements MenuProvide
     // Persisted separately from the transient menu session: replacing a terminal must not retarget a job.
     private java.util.UUID productionIdentity = java.util.UUID.randomUUID();
     private final dev.itemexplorer.transfer.TransferConfig transferConfig = new dev.itemexplorer.transfer.TransferConfig();
+    private final dev.itemexplorer.portable.PortableConfig portableConfig = new dev.itemexplorer.portable.PortableConfig();
     private boolean productionIdentityNeedsSave = true;
     private java.util.UUID defaultVolume;
     private Path recoveryArchive;
@@ -49,6 +50,25 @@ public final class StorageBlockEntity extends BlockEntity implements MenuProvide
         setChanged();
     }
     public dev.itemexplorer.transfer.TransferConfig transferConfig() { return transferConfig; }
+    public boolean portableEnabled() { return portableConfig.enabled(); }
+    public int portableDeviceCount() { return portableConfig.deviceCount(); }
+    public long portableRevision() { return portableConfig.revision(); }
+    public void setPortableEnabled(boolean enabled) {
+        portableConfig.setEnabled(enabled);
+        setChanged();
+    }
+    public void revokePortableDevices() {
+        portableConfig.revokeAll();
+        setChanged();
+    }
+    public java.util.UUID grantPortableDevice(java.util.UUID device, java.util.UUID previousGrant) {
+        java.util.UUID grant = portableConfig.grant(device, previousGrant);
+        setChanged();
+        return grant;
+    }
+    public boolean acceptsPortableDevice(java.util.UUID device, java.util.UUID grant) {
+        return portableConfig.accepts(device, grant);
+    }
     public java.util.UUID productionIdentity() {
         if (productionIdentityNeedsSave) { setChanged(); productionIdentityNeedsSave = false; }
         return productionIdentity;
@@ -61,6 +81,7 @@ public final class StorageBlockEntity extends BlockEntity implements MenuProvide
         tag.put("Programs", programs.save());
         tag.putUUID("ProductionIdentity", productionIdentity);
         tag.put("RemoteReceiver", transferConfig.save());
+        tag.put("PortableAccess", portableConfig.save());
         if (defaultVolume != null) tag.putUUID("DefaultVolume", defaultVolume);
     }
 
@@ -72,6 +93,7 @@ public final class StorageBlockEntity extends BlockEntity implements MenuProvide
         productionIdentity = tag.hasUUID("ProductionIdentity") ? tag.getUUID("ProductionIdentity") : java.util.UUID.randomUUID();
         productionIdentityNeedsSave = !tag.hasUUID("ProductionIdentity");
         transferConfig.load(tag.get("RemoteReceiver"));
+        portableConfig.load(tag.get("PortableAccess"));
         defaultVolume = tag.hasUUID("DefaultVolume") ? tag.getUUID("DefaultVolume") : null;
         recoveryArchive = null;
         programRecoveryArchive = null;

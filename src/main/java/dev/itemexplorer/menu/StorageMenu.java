@@ -14,6 +14,7 @@ import dev.itemexplorer.storage.SearchCatalogSupport;
 import dev.itemexplorer.production.TerminalPrograms;
 import dev.itemexplorer.production.ProgramFile;
 import dev.itemexplorer.transfer.RemoteTransfers;
+import dev.itemexplorer.portable.PortableAccess;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
@@ -50,8 +51,12 @@ public final class StorageMenu extends AbstractContainerMenu {
     private final CraftingContainer craftSlots = new TransientCraftingContainer(this, 3, 3);
     private final ResultContainer craftResult = new ResultContainer();
     private final BlockPos pos;
-    private final StorageBlockEntity blockEntity;
+    private StorageBlockEntity blockEntity;
     private final Player player;
+    private final PortableAccess.Session portable;
+    private boolean portableMode;
+    private int lockedInventorySlot = -1;
+    private String portableStatus = "", portableTargetName = "";
     private final CableConnectionData cable = new CableConnectionData();
     public CableConnectionData cable() { return cable; }
     private int currentFolder, page, pageSize = StorageInventory.PAGE_SIZE;
@@ -64,6 +69,7 @@ public final class StorageMenu extends AbstractContainerMenu {
     private long sentProgramRevision = -2, nextProgramRefresh;
     private String sentNasStamp = "";
     private String sentDefaultVolume;
+    private long sentPortableRevision = -1;
     private long sentTransferConfigRevision = -1;
     private ListTag transferTargets = new ListTag();
     private CableStorageAccess.Result nasAccess = new CableStorageAccess.Result(List.of(), 0, "checking");
@@ -75,26 +81,58 @@ public final class StorageMenu extends AbstractContainerMenu {
     private Set<Integer> searchMatches = Set.of(), publishedSearchEntries = Set.of();
     private final Map<Integer, CompoundTag> sentCatalog = new LinkedHashMap<>();
 
-    public StorageMenu(int id, Inventory inventory, FriendlyByteBuf data) { this(id, inventory, data.readBlockPos(), null); }
+    public StorageMenu(int id, Inventory inventory, FriendlyByteBuf data) {
+        this(id, inventory, data.readBlockPos(), null);
+        // Physical terminals also open through vanilla's BlockPos-only helper.
+        portableMode = data.isReadable() && data.readBoolean();
+        if (portableMode) lockedInventorySlot = data.readVarInt();
+    }
     public StorageMenu(int id, Inventory inventory, BlockPos pos, StorageBlockEntity blockEntity) {
+        this(id, inventory, pos, blockEntity, null);
+    }
+    public StorageMenu(int id, Inventory inventory, BlockPos pos, StorageBlockEntity blockEntity, PortableAccess.Session portable) {
         super(ModContent.STORAGE_MENU.get(), id);
         this.pos = pos; this.blockEntity = blockEntity; this.player = inventory.player;
+        this.portable = portable; this.portableMode = portable != null;
+        if (portable != null) {
+            lockedInventorySlot = portable.slot();
+            portableTargetName = blockEntity == null ? "" : blockEntity.transferConfig().name();
+        }
         if (blockEntity != null) cable.refresh(player.level(), pos, false);
         addDataSlots(cable);
         for (int row = 0; row < 3; row++) for (int col = 0; col < 9; col++)
-            addSlot(new Slot(inventory, 9 + row * 9 + col, 79 + col * 18, 154 + row * 18));
-        for (int col = 0; col < 9; col++) addSlot(new Slot(inventory, col, 79 + col * 18, 212));
+            addSlot(playerSlot(inventory, 9 + row * 9 + col, 79 + col * 18, 154 + row * 18));
+        for (int col = 0; col < 9; col++) addSlot(playerSlot(inventory, col, 79 + col * 18, 212));
         StorageLayout layout = new StorageLayout(WIDTH, HEIGHT);
         addSlot(new ResultSlot(player, craftSlots, craftResult, 0, layout.craftingResultX(), layout.craftingResultY()));
         for (int row = 0; row < 3; row++) for (int col = 0; col < 3; col++)
             addSlot(new Slot(craftSlots, row * 3 + col, layout.craftingX() + col * 18, layout.craftingY() + row * 18));
         if (blockEntity != null) {
-            volume = blockEntity.defaultVolume();
+            volume = defaultVolume();
             refreshMount();
             StorageAccess initial = storage();
             // Fall back only when opening; a disk disappearing during use must never redirect an item action.
             if (initial == null || initial.isLocked()) { volume = ""; refreshMount(); }
+            if (portable != null) {
+                var location = portable.location();
+                if (location.volume().equals(volume) && storage() != null && storage().hasFolder(location.folder())) {
+                    currentFolder = location.folder(); page = Math.max(0, location.page());
+                    pageSize = Math.max(StorageInventory.PAGE_SIZE, Math.min(StorageInventory.MAX_PAGE_SIZE, location.pageSize()));
+                }
+            }
         }
+    }
+    public boolean isPortable() { return portableMode; }
+    private String defaultVolume() { return portable != null ? portable.defaultVolume() : blockEntity == null ? "" : blockEntity.defaultVolume(); }
+    private Slot playerSlot(Container inventory, int index, int x, int y) {
+        return new Slot(inventory, index, x, y) {
+            @Override public boolean mayPickup(Player player) { return getContainerSlot() != lockedInventorySlot && super.mayPickup(player); }
+            @Override public boolean mayPlace(ItemStack stack) { return getContainerSlot() != lockedInventorySlot && super.mayPlace(stack); }
+        };
+    }
+    private boolean lockedSlot(int menuSlot) {
+        return portableMode && menuSlot >= 0 && menuSlot < PLAYER_SLOT_COUNT
+                && slots.get(menuSlot).getContainerSlot() == lockedInventorySlot;
     }
     public CompoundTag view() { return clientView; }
     public void acceptView(CompoundTag view) { clientView = view.copy(); }
@@ -115,7 +153,7 @@ public final class StorageMenu extends AbstractContainerMenu {
         if (blockEntity != null) return;
         for (int i = 0; i < PLAYER_SLOT_COUNT; i++) {
             Slot previous = slots.get(i);
-            Slot replacement = new Slot(previous.container, previous.getContainerSlot(),
+            Slot replacement = playerSlot(previous.container, previous.getContainerSlot(),
                     x + (i % 9) * 18, y + (i < 27 ? i / 9 * 18 : 58));
             replacement.index = previous.index; slots.set(i, replacement);
         }
@@ -148,12 +186,15 @@ public final class StorageMenu extends AbstractContainerMenu {
     @Override public void clicked(int slotId, int button, ClickType type, Player player) {
         if (closed || player != this.player || (!player.level().isClientSide && !stillValid(player))) return;
         if (slotId >= slots.size() || (slotId < 0 && slotId != -1 && slotId != -999)) return;
+        if (lockedSlot(slotId) || portableMode && type == ClickType.SWAP && button == lockedInventorySlot) return;
         super.clicked(slotId, button, type, player);
     }
     @Override public boolean canTakeItemForPickAll(ItemStack stack, Slot slot) {
-        return slot.container != craftResult && super.canTakeItemForPickAll(stack, slot);
+        return slot.container != craftResult && !lockedSlot(slot.index) && super.canTakeItemForPickAll(stack, slot);
     }
     @Override public boolean stillValid(Player player) {
+        if (portable != null) return !closed && player == this.player && player.containerMenu == this
+                && !player.isSpectator() && portable.heldBy(player);
         if (blockEntity == null) return player.level().isClientSide;
         return !closed && player == this.player && player.containerMenu == this
                 && player.level() == blockEntity.getLevel() && !player.isSpectator() && !blockEntity.isRemoved()
@@ -181,6 +222,7 @@ public final class StorageMenu extends AbstractContainerMenu {
     }
     /** Resolve for every operation: callers never retain a removed disk's inventory handle. */
     private StorageAccess storage() {
+        if (blockEntity == null || portable != null && !portableStatus.isEmpty()) return null;
         if (volume.isEmpty()) return blockEntity.inventory();
         NasBlockEntity nas = nas(); int bay = bay(nas);
         DiskSavedData disk = bay < 0 ? null : nas.volume(bay);
@@ -190,6 +232,17 @@ public final class StorageMenu extends AbstractContainerMenu {
         refreshMount(true);
     }
     private void refreshMount(boolean forceTopology) {
+        if (portable != null) {
+            String status = portable.status(player);
+            StorageBlockEntity resolved = status.isEmpty() ? portable.terminal() : null;
+            if (!status.equals(portableStatus) || resolved != blockEntity) {
+                exitSearch(true); session = MenuSession.next(); querySeq = 0; located = -1;
+                nextTopologyCheck = Long.MIN_VALUE;
+            }
+            portableStatus = status; blockEntity = resolved;
+            if (resolved != null) portableTargetName = resolved.transferConfig().name();
+            else { nasAccess = new CableStorageAccess.Result(List.of(), 0, "disconnected"); return; }
+        }
         if (blockEntity == null) return;
         long now = player.level().getGameTime();
         if (forceTopology || now >= nextTopologyCheck) {
@@ -200,7 +253,9 @@ public final class StorageMenu extends AbstractContainerMenu {
         String stamp = volume.isEmpty() ? "local" : bay < 0 || nas.volume(bay) == null ? "offline:" + volume : nas.stamp(bay);
         if (!stamp.equals(mountStamp)) {
             exitSearch(true);
-            mountStamp = stamp; session = MenuSession.next(); currentFolder = page = 0;
+            mountStamp = stamp; session = MenuSession.next();
+            // A handheld resumes the same directory after its NAS reconnects. Explicit drive selection resets it separately.
+            if (!portableMode) currentFolder = page = 0;
             querySeq = 0; located = -1;
         }
     }
@@ -209,7 +264,8 @@ public final class StorageMenu extends AbstractContainerMenu {
         return currentSnapshot();
     }
     private CompoundTag currentSnapshot() {
-        TerminalPrograms.reconcile(blockEntity);
+        if (portable != null && blockEntity == null) return offlineSnapshot();
+        if (!portableMode) TerminalPrograms.reconcile(blockEntity);
         StorageAccess storage = storage();
         if (storage != null && !storage.hasFolder(currentFolder)) {
             currentFolder = 0; page = 0;
@@ -218,17 +274,19 @@ public final class StorageMenu extends AbstractContainerMenu {
         invalidateSearch(storage);
         CompoundTag view;
         if (storage == null) {
-            view = new CompoundTag(); view.putInt("Current", 0); view.putInt("Pages", 1); view.putLong("Revision", -1); view.putInt("PageSize", pageSize);
+            view = new CompoundTag(); view.putInt("Current", portableMode ? currentFolder : 0);
+            view.putInt("Page", portableMode ? page : 0); view.putInt("Pages", portableMode ? Math.max(1, page + 1) : 1);
+            view.putLong("Revision", -1); view.putInt("PageSize", pageSize);
             view.putString("Message", message.isEmpty() ? "disk_offline" : message);
         } else view = searching
                 ? storage.searchView(searchRoot, searchRecursive, searchReady ? searchMatches : Set.of(), page, pageSize, message)
-                : volume.isEmpty() ? TerminalPrograms.directoryView(blockEntity, currentFolder, page, pageSize, message)
+                : volume.isEmpty() && !portableMode ? TerminalPrograms.directoryView(blockEntity, currentFolder, page, pageSize, message)
                 : storage.view(currentFolder, page, pageSize, message);
         page = view.getInt("Page");
         view.putBoolean("Available", storage != null); view.putLong("Session", session); view.putString("Volume", volume);
-        view.putString("DefaultVolume", blockEntity.defaultVolume());
+        view.putString("DefaultVolume", defaultVolume());
         view.putLong("ProgramRevision", blockEntity.programs().revision());
-        view.putBoolean("ProgramsAvailable", volume.isEmpty() && !searching && !blockEntity.programs().isLocked()
+        view.putBoolean("ProgramsAvailable", !portableMode && volume.isEmpty() && !searching && !blockEntity.programs().isLocked()
                 && !blockEntity.inventory().isLocked());
         view.putBoolean("Searching", searching); view.putBoolean("SearchReady", searchReady);
         view.putInt("SearchRoot", searchRoot); view.putBoolean("SearchRecursive", searchRecursive);
@@ -260,13 +318,49 @@ public final class StorageMenu extends AbstractContainerMenu {
         disks.values().forEach(volumes::add);
         if (!volume.isEmpty() && !disks.containsKey(volume)) { CompoundTag missing = new CompoundTag(); missing.putString("Id", volume); missing.putBoolean("Online", false); volumes.add(missing); }
         view.put("Volumes", volumes);
-        view.put("RemoteConfig", RemoteTransfers.configuration(blockEntity));
+        view.putBoolean("RemoteAvailable", !portableMode);
+        if (!portableMode) view.put("RemoteConfig", RemoteTransfers.configuration(blockEntity));
         view.put("RemoteTargets", transferTargets.copy());
+        putPortableView(view);
+        return view;
+    }
+    private void putPortableView(CompoundTag view) {
+        view.putBoolean("Portable", portableMode);
+        view.putBoolean("PortableConnected", portableMode && blockEntity != null && portableStatus.isEmpty());
+        view.putString("PortableStatus", "gui.itemexplorer." + (portableStatus.isEmpty() ? "portable_connected" : portableStatus));
+        view.putString("PortableTargetName", portableTargetName);
+        if (blockEntity != null && !portableMode) {
+            view.putBoolean("PortableAccessEnabled", blockEntity.portableEnabled());
+            view.putLong("PortableAccessRevision", blockEntity.portableRevision());
+            view.putInt("PortablePairings", blockEntity.portableDeviceCount());
+        }
+    }
+    /** Offline snapshots carry no inventory samples or writable fallback drive. */
+    private CompoundTag offlineSnapshot() {
+        CompoundTag view = new CompoundTag();
+        view.putInt("Current", currentFolder); view.putInt("Page", page); view.putInt("Pages", Math.max(1, page + 1));
+        view.putInt("PageSize", pageSize); view.putLong("Revision", -1); view.putLong("Session", session);
+        view.putString("Volume", volume); view.putString("DefaultVolume", defaultVolume());
+        view.putString("Message", portableStatus); view.putLong("SearchRevision", -1);
+        // Retain only previously displayed navigation labels; offline views never publish inventory samples or counts.
+        if (sentView != null && volume.equals(sentView.getString("Volume"))) {
+            view.put("Folders", sentView.getList("Folders", Tag.TAG_COMPOUND).copy());
+            ListTag volumes = sentView.getList("Volumes", Tag.TAG_COMPOUND).copy();
+            for (Tag entry : volumes) ((CompoundTag) entry).putBoolean("Online", false);
+            view.put("Volumes", volumes); view.putInt("NasCount", sentView.getInt("NasCount"));
+        }
+        view.putInt("Located", -1); putPortableView(view);
         return view;
     }
     private void sync(boolean force) {
-        if (!(player instanceof ServerPlayer serverPlayer) || blockEntity == null) return;
+        if (!(player instanceof ServerPlayer serverPlayer) || blockEntity == null && portable == null) return;
         refreshMount(force); StorageAccess storage = storage();
+        if (portable != null && blockEntity == null) {
+            CompoundTag view = offlineSnapshot();
+            if (force || !view.equals(sentView)) { StorageNetwork.snapshot(serverPlayer, containerId, view); sentView = view; }
+            sentSession = -1; sentRevision = -2;
+            return;
+        }
         invalidateSearch(storage);
         boolean catalogSent = syncCatalog(serverPlayer, storage);
         long revision = storage == null ? -1 : storage.revision();
@@ -280,7 +374,8 @@ public final class StorageMenu extends AbstractContainerMenu {
         String nasStamp = devices.toString();
         if (!force && !catalogSent && !programRefresh && programRevision == sentProgramRevision
                 && transferConfigRevision == sentTransferConfigRevision
-                && blockEntity.defaultVolume().equals(sentDefaultVolume)
+                && blockEntity.portableRevision() == sentPortableRevision
+                && defaultVolume().equals(sentDefaultVolume)
                 && revision == sentRevision && session == sentSession && nasStamp.equals(sentNasStamp)) return;
         CompoundTag view = currentSnapshot();
         if (force || catalogSent || !view.equals(sentView)) {
@@ -296,13 +391,14 @@ public final class StorageMenu extends AbstractContainerMenu {
         sentRevision = revision; sentSession = session; sentNasStamp = nasStamp;
         sentProgramRevision = blockEntity.programs().revision();
         sentTransferConfigRevision = transferConfigRevision;
-        sentDefaultVolume = blockEntity.defaultVolume();
+        sentDefaultVolume = defaultVolume();
+        sentPortableRevision = blockEntity.portableRevision();
         message = "";
     }
     @Override public void broadcastChanges() {
-        if (blockEntity != null && stillValid(player)) cable.refresh(player.level(), pos, false);
+        if (!portableMode && blockEntity != null && stillValid(player)) cable.refresh(player.level(), pos, false);
         super.broadcastChanges();
-        if (blockEntity != null && stillValid(player)) sync(false);
+        if ((blockEntity != null || portable != null) && stillValid(player)) sync(false);
     }
     @Override public ItemStack quickMoveStack(Player player, int index) {
         // Player shift deposits still use the contextual protocol, including disk and mount session.
@@ -325,6 +421,7 @@ public final class StorageMenu extends AbstractContainerMenu {
     }
     private void depositSlot(StorageAccess storage, int index) {
         if (index < 0 || index >= PLAYER_SLOT_COUNT) throw new IllegalArgumentException("missing_item");
+        if (lockedSlot(index)) throw new IllegalArgumentException("portable_device_in_use");
         Slot slot = slots.get(index); ItemStack source = slot.getItem();
         if (source.isEmpty()) return;
         int count = storage.insert(source, source.getCount(), currentFolder);
@@ -332,10 +429,11 @@ public final class StorageMenu extends AbstractContainerMenu {
         source.shrink(count); slot.setChanged(); message = "deposited";
     }
     public void handle(StorageNetwork.Request request) {
-        if (blockEntity == null || request.menuId() != containerId || !stillValid(player)) return;
+        if (request.menuId() != containerId || !stillValid(player)) return;
         if (!allowAction()) return;
         refreshMount();
         if (request.session() != session) { message = "stale"; sync(true); return; }
+        if (portable != null && blockEntity == null) { sync(true); return; }
         StorageAccess storage = storage();
         if (searching) {
             if (request.action() == StorageNetwork.Action.OPEN || request.action() == StorageNetwork.Action.SELECT_VOLUME)
@@ -362,7 +460,7 @@ public final class StorageMenu extends AbstractContainerMenu {
                 switch (request.action()) {
                     case SET_DEFAULT_VOLUME -> {
                         if (!request.name().equals(volume)) throw new IllegalArgumentException("stale");
-                        blockEntity.setDefaultVolume(volume);
+                        if (portable != null) portable.setDefaultVolume(volume); else blockEntity.setDefaultVolume(volume);
                     }
                     case SORT -> {
                         if (request.id() != currentFolder) throw new IllegalArgumentException("stale");
@@ -402,8 +500,24 @@ public final class StorageMenu extends AbstractContainerMenu {
         if (entry == null || entry.folder() != currentFolder) throw new IllegalArgumentException("missing_item");
     }
 
+    /** Pairing controls are available only at the physical terminal. */
+    public void handlePortable(StorageNetwork.PortableRequest request) {
+        if (portableMode || blockEntity == null || request.menuId() != containerId || !stillValid(player) || !allowAction()) return;
+        if (request.session() != session || request.configRevision() != blockEntity.portableRevision()) {
+            message = "stale"; sync(true); return;
+        }
+        try {
+            switch (request.action()) {
+                case ENABLE -> blockEntity.setPortableEnabled(request.enabled());
+                case REVOKE_ALL -> blockEntity.revokePortableDevices();
+            }
+            message = "";
+        } catch (IllegalArgumentException rejected) { message = rejected.getMessage(); }
+        sync(true);
+    }
+
     public void handleTransfer(StorageNetwork.TransferRequest request) {
-        if (blockEntity == null || request.menuId() != containerId || !stillValid(player) || !allowAction()) return;
+        if (portableMode || blockEntity == null || request.menuId() != containerId || !stillValid(player) || !allowAction()) return;
         refreshMount();
         try {
             if (request.session() != session) throw new IllegalArgumentException("stale");
@@ -456,7 +570,7 @@ public final class StorageMenu extends AbstractContainerMenu {
     }
 
     public void handleFile(StorageNetwork.FileRequest request) {
-        if (blockEntity == null || request.menuId() != containerId || !stillValid(player) || !allowAction()) return;
+        if (portableMode || blockEntity == null || request.menuId() != containerId || !stillValid(player) || !allowAction()) return;
         refreshMount(); TerminalPrograms.reconcile(blockEntity);
         if (request.session() != session || request.revision() != blockEntity.inventory().revision()
                 || request.programRevision() != blockEntity.programs().revision()) { message = "production_stale"; sync(true); return; }
@@ -552,9 +666,10 @@ public final class StorageMenu extends AbstractContainerMenu {
     }
 
     public void handleSearch(StorageNetwork.SearchRequest request) {
-        if (blockEntity == null || request.menuId() != containerId || !stillValid(player) || !allowAction()) return;
+        if (request.menuId() != containerId || !stillValid(player) || !allowAction()) return;
         refreshMount();
         if (request.session() != session) { message = "stale"; sync(true); return; }
+        if (portable != null && blockEntity == null) { sync(true); return; }
         StorageAccess storage = storage(); invalidateSearch(storage); message = ""; located = -1;
         try {
             if (request.action() == StorageNetwork.SearchAction.EXIT) {
@@ -607,7 +722,7 @@ public final class StorageMenu extends AbstractContainerMenu {
                         StorageInventory.Entry entry = storage.entry(request.entryId());
                         int normalSize = savedPageSize;
                         int targetPage = storage.locatePage(entry.id(), normalSize);
-                        if (volume.isEmpty()) {
+                        if (volume.isEmpty() && !portableMode) {
                             int offset = (int) blockEntity.inventory().folders().stream().filter(f -> f.parent() == entry.folder()).count()
                                     + (int) blockEntity.programs().files().stream().filter(f -> f.folder() == entry.folder()).count();
                             for (var candidate : blockEntity.inventory().entries()) {
@@ -630,6 +745,9 @@ public final class StorageMenu extends AbstractContainerMenu {
 
     @Override public void removed(Player player) {
         if (closed) return;
+        if (portable != null && portable.heldBy(player))
+            portable.saveLocation(volume, searching ? savedFolder : currentFolder,
+                    searching ? savedPage : page, searching ? savedPageSize : pageSize);
         closed = true; exitSearch(false); super.removed(player);
         if (!player.level().isClientSide) {
             clearContainer(player, craftSlots);

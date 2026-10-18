@@ -80,6 +80,11 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
 
     private Component label(String key) { return Component.translatable("gui.itemexplorer." + key); }
     private int current() { return menu.view().getInt("Current"); }
+    private boolean portable() { return menu.isPortable(); }
+    private Component portableStatus() {
+        String status = menu.view().getString("PortableStatus");
+        return status.isEmpty() ? label("portable_connecting") : Component.translatable(status);
+    }
 
     private Button button(int x, int y, int width, String key, Button.OnPress action) {
         return addRenderableWidget(Button.builder(label(key), action).bounds(leftPos + x, topPos + y, width, 18).build());
@@ -96,6 +101,7 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
         dragging = false; dragCandidate = -1; choosingTarget = false;
         menu.arrangeClientSlots(layout);
         remoteOpen = button(imageWidth - 194, 4, 74, "transfer_open", b -> {
+            if (portable()) return;
             Entry entry = selectedEntry();
             openingRemoteScreen = true;
             try {
@@ -184,7 +190,7 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
 
     private void sendFile(StorageNetwork.FileAction action, int id, int target, String name) {
         CompoundTag view = menu.view();
-        if (!view.getBoolean("ProgramsAvailable") || awaitingVolume || searching) return;
+        if (portable() || !view.getBoolean("ProgramsAvailable") || awaitingVolume || searching) return;
         if (target < 0) { error = "cross_disk"; errorUntil = Util.getMillis() + 4500; return; }
         StorageNetwork.request(new StorageNetwork.FileRequest(menu.containerId, view.getLong("Session"),
                 view.getLong("Revision"), view.getLong("ProgramRevision"), action, id, target, name));
@@ -441,7 +447,7 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
         }
         List<ProgramFile> decodedPrograms = new ArrayList<>();
         for (Tag tag : cachedView.getList("ProgramFiles", Tag.TAG_COMPOUND)) {
-            if (searching || cachedView.getBoolean("Searching")) break;
+            if (portable() || searching || cachedView.getBoolean("Searching")) break;
             CompoundTag p = (CompoundTag) tag;
             ProgramFile program = new ProgramFile(p.getInt("Id"), p.getInt("Folder"), p.getString("Name"),
                     p.getBoolean("Configured"), p.getBoolean("Active"), p.getString("Machine"), p.getString("Status"));
@@ -465,7 +471,10 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
         if (searchReady()) applyingSearch = false;
         buildCrumbs();
         String message = cachedView.getString("Message");
-        if (!QUIET_MESSAGES.contains(message)) { error = message; errorUntil = Util.getMillis() + 4500; }
+        // Connection failures have their own persistent, fully translated status below.
+        // Do not replay an old disconnection as a transient error after reconnecting.
+        if (portable() && !cachedView.getBoolean("PortableConnected")) errorUntil = 0;
+        else if (!QUIET_MESSAGES.contains(message)) { error = message; errorUntil = Util.getMillis() + 4500; }
     }
 
     private void rebuildTree() {
@@ -566,7 +575,7 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
         programModal = rename && program != null;
         folderName.setValue(rename ? program != null ? program.name : current != null ? current.name : "" : "");
         folderName.visible = modalOk.visible = modalCancel.visible = true;
-        modalKind.visible = !rename && menu.view().getBoolean("ProgramsAvailable");
+        modalKind.visible = !rename && !portable() && menu.view().getBoolean("ProgramsAvailable");
         modalKind.setMessage(label("file_kind_folder"));
         setFocused(folderName); folderName.setFocused(true); quantity.setFocused(false);
     }
@@ -632,7 +641,10 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
         defaultVolume.active = writable && !modal && !searching && !choosingTarget && !dragging
                 && menu.view().contains("Session") && !isDefaultVolume;
         defaultVolume.setMessage(label(isDefaultVolume ? "default_volume" : "set_default_volume"));
-        defaultVolume.setTooltip(Tooltip.create(label(isDefaultVolume ? "default_volume_hint" : "set_default_volume_hint")));
+        defaultVolume.setTooltip(Tooltip.create(label(portable()
+                ? isDefaultVolume ? "portable_default_volume_hint" : "portable_set_default_volume_hint"
+                : isDefaultVolume ? "default_volume_hint" : "set_default_volume_hint")));
+        remoteOpen.visible = !portable();
         remoteOpen.active = !modal && !searching && !awaitingVolume && !awaitingSearchExit
                 && menu.view().contains("Session");
         remoteOpen.setMessage(label(selectedEntry() == null ? "transfer_settings" : "transfer_open"));
@@ -648,7 +660,7 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
         quantity.setEditable(!fileSelected);
         withdraw.setMessage(label(fileSelected ? "program_open" : "withdraw"));
         all.setMessage(label(fileSelected ? "program_copy" : "all"));
-        create.setMessage(label(menu.view().getBoolean("ProgramsAvailable") ? "file_new" : "new"));
+        create.setMessage(label(!portable() && menu.view().getBoolean("ProgramsAvailable") ? "file_new" : "new"));
         deposit.active = writable && !menu.getCarried().isEmpty() && !modal && !searching;
         deposit.setTooltip(searching ? Tooltip.create(label("search_deposit_hint")) : null);
         move.setMessage(label(searching ? "locate" : choosingTarget ? "cancel_move" : "move"));
@@ -674,6 +686,13 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
                 renderTooltip(g, mouseX, mouseY);
                 if (inside(mouseX, mouseY, 6, 5, 20, 16)) {
                     var lines = new ArrayList<Component>();
+                    if (portable()) {
+                        lines.add(label("portable_title"));
+                        String targetName = menu.view().getString("PortableTargetName");
+                        if (!targetName.isEmpty()) lines.add(Component.literal(targetName));
+                        lines.add(portableStatus());
+                        lines.add(label("portable_range_hint"));
+                    } else {
                     String wireState = menu.view().getString("CableStorageStatus");
                     lines.add(label("local_wire_" + (wireState.isEmpty() ? "checking" : wireState)));
                     lines.add(Component.translatable("gui.itemexplorer.local_nas_count", menu.view().getInt("NasCount"), menu.view().getInt("WiredNasCount")));
@@ -682,6 +701,7 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
                     if (menu.cable().status() == StationConnection.Status.CONNECTED) {
                         var station = menu.cable().controller();
                         lines.add(Component.translatable("gui.itemexplorer.cable_station", station.getX(), station.getY(), station.getZ()));
+                    }
                     }
                     g.renderTooltip(font, lines, java.util.Optional.empty(), mouseX, mouseY);
                 }
@@ -772,12 +792,19 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
     @Override
     protected void renderBg(GuiGraphics g, float partialTick, int mouseX, int mouseY) {
         panel(g, 0, 0, imageWidth, imageHeight);
-        g.renderItem(ModContent.STORAGE_ITEM.get().getDefaultInstance(), leftPos + 8, topPos + 5);
+        g.renderItem((portable() ? ModContent.PORTABLE_TERMINAL_ITEM : ModContent.STORAGE_ITEM).get().getDefaultInstance(), leftPos + 8, topPos + 5);
         // A compact wired-status badge preserves the existing title, capacity and search layout.
-        boolean connected = menu.cable().status() == StationConnection.Status.CONNECTED || menu.view().getInt("NasCount") > 0;
+        boolean connected = portable() ? menu.view().getBoolean("PortableConnected")
+                : menu.cable().status() == StationConnection.Status.CONNECTED || menu.view().getInt("NasCount") > 0;
         g.fill(leftPos + 20, topPos + 15, leftPos + 26, topPos + 21, 0xff303030);
         g.fill(leftPos + 21, topPos + 16, leftPos + 25, topPos + 20, connected ? 0xff55ac72 : 0xffb7784c);
-        text(g, label("title"), 28, 9, imageWidth - 226, TEXT);
+        if (portable()) {
+            String target = menu.view().getString("PortableTargetName");
+            Component portableTitle = label("portable_title").copy().append(target.isEmpty() ? "" : " · " + target);
+            text(g, portableTitle, 28, 9, imageWidth - 226, TEXT);
+            text(g, label(connected ? "portable_connected_short" : "portable_offline_short"),
+                    imageWidth - 194, 9, 74, connected ? 0xff286539 : 0xff953c30);
+        } else text(g, label("title"), 28, 9, imageWidth - 226, TEXT);
         String capacity = menu.view().getBoolean("Locked") ? label("locked").getString()
                 : !menu.view().getBoolean("Available") ? label("offline").getString()
                 : compact(menu.view().getLong("Total")) + " / " + compact(menu.view().getLong("Capacity"));
@@ -857,7 +884,8 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
                 recessText(g, e.stack.getHoverName(), x + 4, y + 20, w - 6, RECESS_TEXT, color);
             }
         }
-        if (tiles.isEmpty()) recessText(g, label(searching ? searchReady() ? "search_empty" : "search_loading" : "empty"),
+        if (tiles.isEmpty()) recessText(g, label(portable() && menu.view().contains("Session") && !menu.view().getBoolean("Available")
+                        ? "offline" : searching ? searchReady() ? "search_empty" : "search_loading" : "empty"),
                 layout.browserX() + 12, layout.browserY() + 12, layout.browserWidth() - 24, RECESS_TEXT);
         text(g, label("quantity"), layout.controlsX(), layout.controlsY() + 5, 26, TEXT);
         text(g, label("crafting"), layout.craftingX(), layout.inventoryY() + 3, 104, TEXT);
@@ -870,7 +898,9 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
         boolean locked = menu.view().getBoolean("Locked");
         boolean offline = menu.view().contains("Session") && !menu.view().getBoolean("Available");
         if (!locked && !offline && Util.getMillis() >= errorUntil) return;
-        var lines = font.split(Component.translatable("message.itemexplorer." + (locked ? "storage_locked" : offline ? "disk_offline" : error)), imageWidth - 40);
+        Component message = portable() && !menu.view().getBoolean("PortableConnected") ? portableStatus()
+                : Component.translatable("message.itemexplorer." + (locked ? "storage_locked" : offline ? "disk_offline" : error));
+        var lines = font.split(message, imageWidth - 40);
         int h = lines.size() * font.lineHeight + 12;
         int x = 12, y = layout.controlsY() - h - 3;
         g.pose().pushPose(); g.pose().translate(0, 0, 250);

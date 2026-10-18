@@ -9,6 +9,7 @@ import dev.itemexplorer.block.NasBlock;
 import dev.itemexplorer.block.NasBlockEntity;
 import dev.itemexplorer.disk.DiskItem;
 import dev.itemexplorer.disk.DiskTier;
+import dev.itemexplorer.portable.PortableTerminalItem;
 import dev.itemexplorer.block.LogisticsPortBlock;
 import dev.itemexplorer.block.LogisticsPortBlockEntity;
 import dev.itemexplorer.menu.LogisticsPortMenu;
@@ -48,6 +49,7 @@ public final class ModContent {
             () -> BlockEntityType.Builder.of(StorageBlockEntity::new, STORAGE_BLOCK.get()).build(null));
     public static final RegistryObject<MenuType<StorageMenu>> STORAGE_MENU = MENUS.register("storage_terminal",
             () -> IForgeMenuType.create(StorageMenu::new));
+    public static final RegistryObject<Item> PORTABLE_TERMINAL_ITEM = ITEMS.register("portable_terminal", PortableTerminalItem::new);
 
     private ModContent() {}
 
@@ -111,6 +113,7 @@ public final class ModContent {
                     .icon(() -> STORAGE_ITEM.get().getDefaultInstance())
                     .displayItems((parameters, output) -> {
                         output.accept(STORAGE_ITEM.get());
+                        output.accept(PORTABLE_TERMINAL_ITEM.get());
                         output.accept(NAS_ITEM.get());
                         output.accept(LOGISTICS_ITEM.get());
                         output.accept(PRODUCTION_ITEM.get());

@@ -1,0 +1,35 @@
+// Opt-in real-client acceptance; this source set never enters the release JAR.
+gradle.beforeProject { p -> p.afterEvaluate {
+    p.sourceSets.create('portableClientTest') {
+        java.srcDir 'src/portableClientTest/java'
+        compileClasspath += p.sourceSets.main.output + p.sourceSets.main.compileClasspath
+        runtimeClasspath += output + compileClasspath
+    }
+    def probeDirectory = p.file('work/portable-terminal-client')
+    def run = p.minecraft.runs.client
+    run.workingDirectory = probeDirectory
+    run.property 'itemexplorer.portableClientProbe', probeDirectory.absolutePath
+    run.jvmArgs '-Xms256m', '-Xmx1536m'
+    run.mods.itemexplorer.source p.sourceSets.portableClientTest
+    run.args '--username', 'PortableProbe', '--width', '960', '--height', '720', '--quickPlaySingleplayer', 'Base Station Probe'
+    p.tasks.matching { it.name == 'runClient' }.configureEach {
+        doFirst {
+            def worldDirectory = new File(probeDirectory, 'saves/Base Station Probe')
+            if (!new File(worldDirectory, 'level.dat').isFile()) {
+                def sourceWorld = p.file('work/remote-transfer-client/saves/Base Station Probe')
+                if (!new File(sourceWorld, 'level.dat').isFile())
+                    throw new GradleException('Prepare the disposable work/remote-transfer-client/saves/Base Station Probe fixture first')
+                p.copy { from sourceWorld; into worldDirectory }
+            }
+            new File(probeDirectory, 'options.txt').setText('lang:zh_cn\nguiScale:2\npauseOnLostFocus:false\nrenderDistance:4\nsimulationDistance:5\nfullscreen:false\n', 'UTF-8')
+            def result = new File(probeDirectory, 'result.txt')
+            if (result.exists() && (!result.isFile() || !result.delete()))
+                throw new GradleException('Could not clear the isolated portable terminal result.txt')
+        }
+        doLast {
+            def result = new File(probeDirectory, 'result.txt')
+            if (!result.isFile() || result.getText('UTF-8').trim() != 'PASS')
+                throw new GradleException('Portable terminal client acceptance failed; inspect work/portable-terminal-client/report.txt')
+        }
+    }
+} }

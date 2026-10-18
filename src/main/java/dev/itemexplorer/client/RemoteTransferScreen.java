@@ -33,6 +33,7 @@ public final class RemoteTransferScreen extends Screen {
     private final long sourceSession, initialAmount;
     private EditBox name, quantity;
     private Button receiving, bind, send, refresh, saveName, settings, back, previousTargets, nextTargets;
+    private Button portableAccess;
     private final Button[] targetButtons = new Button[ROWS], amountButtons = new Button[4];
     private int left, top, panelWidth, targetPage;
     private boolean settingsPage, pending, initialized, feedbackSuccess;
@@ -90,6 +91,9 @@ public final class RemoteTransferScreen extends Screen {
         amountButtons[3].setTooltip(Tooltip.create(label("max_hint")));
         back = button(10, 214, 56, label("back"), b -> onClose());
         settings = button(72, 214, 82, label("settings"), b -> showSettings(true));
+        portableAccess = button(72, 214, 128, Component.translatable("gui.itemexplorer.portable_access"),
+                b -> minecraft.setScreen(new PortableAccessScreen(this, menu)));
+        portableAccess.setTooltip(Tooltip.create(Component.translatable("gui.itemexplorer.portable_access_hint")));
         send = button(panelWidth - 138, 214, 128, label("send_short"), b -> request(StorageNetwork.TransferAction.SEND));
         send.setTooltip(Tooltip.create(label("send_hint")));
         clearInputFocus(); observeView(); updateWidgets();
@@ -236,6 +240,8 @@ public final class RemoteTransferScreen extends Screen {
     private void updateWidgets() {
         if (name == null || send == null) return;
         name.visible = saveName.visible = bind.visible = receiving.visible = settingsPage;
+        portableAccess.visible = settingsPage && !menu.isPortable();
+        portableAccess.active = !pending && menu.view().contains("Session");
         quantity.visible = send.visible = settings.visible = refresh.visible = previousTargets.visible = nextTargets.visible = !settingsPage;
         saveName.active = receiving.active = !pending && menu.view().contains("Session");
         name.setEditable(!pending); bind.active = !pending && writable();

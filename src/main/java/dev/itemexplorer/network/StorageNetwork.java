@@ -27,13 +27,32 @@ import java.util.UUID;
 import java.util.function.Supplier;
 
 public final class StorageNetwork {
-    private static final String VERSION = "14";
+    private static final String VERSION = "15";
     private static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
             new ResourceLocation(ItemExplorer.MOD_ID, "storage"), () -> VERSION, VERSION::equals, VERSION::equals);
 
     public enum Action { OPEN, PAGE, CREATE, RENAME, DELETE, MOVE, WITHDRAW, DEPOSIT_CURSOR, RESIZE, SELECT_VOLUME, RENAME_DISK, DEPOSIT_SLOT, SORT, SET_DEFAULT_VOLUME }
     public enum SearchAction { START, APPLY, PAGE, RESIZE, EXIT, LOCATE, TAKE }
     public enum TransferAction { REFRESH, NAME, BIND, RECEIVING, SEND }
+    public enum PortableAction { ENABLE, REVOKE_ALL }
+
+    /** Physical-terminal authorization settings, independent of the public receiver configuration. */
+    public record PortableRequest(int menuId, long session, long configRevision, PortableAction action, boolean enabled) {
+        public PortableRequest { Objects.requireNonNull(action); }
+        public static PortableRequest decode(FriendlyByteBuf buf) {
+            return new PortableRequest(buf.readVarInt(), buf.readLong(), buf.readLong(), buf.readEnum(PortableAction.class), buf.readBoolean());
+        }
+        public void encode(FriendlyByteBuf buf) {
+            buf.writeVarInt(menuId); buf.writeLong(session); buf.writeLong(configRevision); buf.writeEnum(action); buf.writeBoolean(enabled);
+        }
+        public void handle(Supplier<NetworkEvent.Context> context) {
+            context.get().enqueueWork(() -> {
+                ServerPlayer player = context.get().getSender();
+                if (player != null && player.containerMenu instanceof StorageMenu menu) menu.handlePortable(this);
+            });
+            context.get().setPacketHandled(true);
+        }
+    }
 
     /** Contextual transfer requests carry identities only; storage and routes are resolved by the server. */
     public record TransferRequest(int menuId, long session, long revision, long configRevision,
@@ -301,6 +320,8 @@ public final class StorageNetwork {
                 Optional.of(NetworkDirection.PLAY_TO_SERVER));
         CHANNEL.registerMessage(9, StationNetworkRequest.class, StationNetworkRequest::encode, StationNetworkRequest::decode, StationNetworkRequest::handle,
                 Optional.of(NetworkDirection.PLAY_TO_SERVER));
+        CHANNEL.registerMessage(10, PortableRequest.class, PortableRequest::encode, PortableRequest::decode, PortableRequest::handle,
+                Optional.of(NetworkDirection.PLAY_TO_SERVER));
     }
 
     public static void request(Request request) { CHANNEL.sendToServer(request); }
@@ -311,6 +332,7 @@ public final class StorageNetwork {
     public static void request(FileRequest request) { CHANNEL.sendToServer(request); }
     public static void request(TransferRequest request) { CHANNEL.sendToServer(request); }
     public static void request(StationNetworkRequest request) { CHANNEL.sendToServer(request); }
+    public static void request(PortableRequest request) { CHANNEL.sendToServer(request); }
     public static void searchCatalog(ServerPlayer player, SearchCatalog packet) {
         CHANNEL.send(PacketDistributor.PLAYER.with(() -> player), packet);
     }
