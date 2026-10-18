@@ -9,6 +9,7 @@ import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.network.chat.Component;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.world.entity.player.Inventory;
 
 import java.util.List;
@@ -21,9 +22,10 @@ public final class BaseStationScreen extends AbstractContainerScreen<BaseStation
             {".A.", "AMA", ".A."}, {"...", ".T.", "..."}
     };
     private boolean guide;
+    private boolean chunkPage;
     private int page;
     private int rows;
-    private Button toggle, previous, next, network;
+    private Button toggle, previous, next, network, chunks, chunkSwitch, preview;
 
     public BaseStationScreen(BaseStationMenu menu, Inventory inventory, Component title) {
         super(menu, inventory, title);
@@ -42,8 +44,12 @@ public final class BaseStationScreen extends AbstractContainerScreen<BaseStation
         super.init();
         toggle = addRenderableWidget(Button.builder(label(guide ? "inspect" : "guide"), b -> {
             guide = !guide;
-            b.setMessage(label(guide ? "inspect" : "guide"));
+            chunkPage = false;
         }).bounds(leftPos + imageWidth - 86, topPos + 7, 78, 18).build());
+        chunks = addRenderableWidget(Button.builder(label("chunks"), b -> {
+            chunkPage = !chunkPage;
+            guide = false;
+        }).bounds(leftPos + imageWidth - 180, topPos + 7, 90, 18).build());
         previous = addRenderableWidget(Button.builder(Component.literal("<"), b -> page = Math.max(0, page - 1))
                 .bounds(leftPos + 9, topPos + imageHeight - 25, 24, 18).build());
         next = addRenderableWidget(Button.builder(Component.literal(">"), b -> page++)
@@ -53,17 +59,35 @@ public final class BaseStationScreen extends AbstractContainerScreen<BaseStation
                     menu.networkView().getLong("Session"), menu.networkOnline(), !menu.networkOnline()));
         }).bounds(leftPos + 11, topPos + imageHeight - 53, imageWidth - 22, 18).build());
         network.setTooltip(Tooltip.create(label("network_hint")));
+        chunkSwitch = addRenderableWidget(Button.builder(label("chunk_off"), b -> {
+            CompoundTag view = menu.chunkLoadingView();
+            StorageNetwork.request(new StorageNetwork.StationChunkRequest(menu.containerId,
+                    menu.networkView().getLong("Session"), view.getLong("Revision"), !view.getBoolean("Enabled")));
+        }).bounds(leftPos + 11, topPos + imageHeight - 53, imageWidth - 22, 18).build());
+        chunkSwitch.setTooltip(Tooltip.create(label("chunk_switch_hint")));
+        preview = addRenderableWidget(Button.builder(label("chunk_preview_show"), b -> {
+            StationChunkPreview.toggle(menu.position(), 1);
+        }).bounds(leftPos + 11, topPos + imageHeight - 29, imageWidth - 22, 18).build());
+        preview.setTooltip(Tooltip.create(label("chunk_preview_hint")));
     }
 
     @Override public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
         int pages = Math.max(1, (menu.issues().size() + rows - 1) / rows);
         page = Math.min(page, pages - 1);
-        previous.visible = next.visible = !guide && menu.ready() && !menu.complete();
+        toggle.setMessage(label(guide ? "inspect" : "guide"));
+        chunks.setMessage(label(chunkPage ? "inspect" : "chunks"));
+        previous.visible = next.visible = !guide && !chunkPage && menu.ready() && !menu.complete();
         previous.active = page > 0;
         next.active = page + 1 < pages;
-        network.visible = !guide && menu.ready() && menu.complete();
+        network.visible = !guide && !chunkPage && menu.ready() && menu.complete();
         network.active = menu.networkView().contains("Session");
         network.setMessage(label(menu.networkOnline() ? "network_on" : "network_off"));
+        CompoundTag chunkView = menu.chunkLoadingView();
+        chunkSwitch.visible = preview.visible = chunkPage && menu.ready();
+        chunkSwitch.active = chunkView.contains("Revision") && menu.networkView().contains("Session")
+                && (chunkView.getBoolean("Enabled") || menu.complete() && chunkView.getInt("ModuleCount") > 0);
+        chunkSwitch.setMessage(label(chunkView.getBoolean("Enabled") ? "chunk_on" : "chunk_off"));
+        preview.setMessage(label(StationChunkPreview.isVisible(menu.position()) ? "chunk_preview_hide" : "chunk_preview_show"));
         renderBackground(graphics);
         super.render(graphics, mouseX, mouseY, partialTick);
         renderTooltip(graphics, mouseX, mouseY);
@@ -81,13 +105,17 @@ public final class BaseStationScreen extends AbstractContainerScreen<BaseStation
 
     @Override protected void renderBg(GuiGraphics g, float partialTick, int mouseX, int mouseY) {
         VanillaGui.panel(g, leftPos, topPos, imageWidth, imageHeight);
-        line(g, title, 10, 12, 0xff25343c, imageWidth - 104);
+        line(g, title, 10, 12, 0xff25343c, imageWidth - 198);
         if (guide) {
             drawGuide(g);
             return;
         }
         if (!menu.ready()) {
             line(g, label("loading"), 11, 38, 0xff485961, imageWidth - 22);
+            return;
+        }
+        if (chunkPage) {
+            drawChunkLoading(g);
             return;
         }
         line(g, label(menu.complete() ? "complete" : "incomplete"), 11, 36,
@@ -133,6 +161,35 @@ public final class BaseStationScreen extends AbstractContainerScreen<BaseStation
         };
     }
 
+    private void drawChunkLoading(GuiGraphics g) {
+        CompoundTag view = menu.chunkLoadingView();
+        String status = view.contains("Status") ? view.getString("Status") : "checking";
+        if ("off".equals(status) && menu.complete() && view.getInt("ModuleCount") == 0) status = "no_module";
+        boolean active = view.getBoolean("Active");
+        line(g, label("chunk_status_" + status), 11, 36,
+                active ? 0xff286539 : "off".equals(status) ? 0xff53636b : 0xff953c30, imageWidth - 22);
+        line(g, label("chunk_range"), 11, 51, 0xff35434b, imageWidth - 22);
+        for (int z = 0; z < 3; z++) for (int x = 0; x < 3; x++) {
+            int px = leftPos + 12 + x * 18, py = topPos + 70 + z * 18;
+            boolean center = x == 1 && z == 1;
+            g.fill(px, py, px + 16, py + 16, center ? 0xffa78036 : active ? 0xff478f91 : 0xff75818b);
+            if (center) g.drawCenteredString(font, Component.literal("C"), px + 8, py + 4, 0xfffaf9f1);
+        }
+        line(g, label("chunk_modules", view.getInt("ModuleCount")), 77, 71, 0xff35434b, imageWidth - 88);
+        line(g, label("chunk_budget", view.getInt("ActiveStations"), view.getInt("MaxStations")),
+                77, 85, 0xff53636b, imageWidth - 88);
+        int y = 100;
+        for (var text : font.split(label("chunk_coverage_hint"), imageWidth - 88)) {
+            if (y > 122) break;
+            g.drawString(font, text, leftPos + 77, topPos + y, VanillaGui.panelText(0xff35434b), VanillaGui.panelShadow());
+            y += 11;
+        }
+        int minX = ((menu.position().getX() >> 4) - 1) << 4;
+        int minZ = ((menu.position().getZ() >> 4) - 1) << 4;
+        line(g, label("chunk_bounds_x", minX, minX + 47), 11, 134, 0xff53636b, imageWidth - 22);
+        line(g, label("chunk_bounds_z", minZ, minZ + 47), 11, 146, 0xff53636b, imageWidth - 22);
+    }
+
     private void drawGuide(GuiGraphics g) {
         line(g, label("dimensions"), 11, 36, 0xff35434b, imageWidth - 22);
         int step = (imageWidth - 24) / 5;
@@ -147,7 +204,7 @@ public final class BaseStationScreen extends AbstractContainerScreen<BaseStation
             }
         }
         line(g, label("front_hint"), 11, 111, 0xff53636b, imageWidth - 22);
-        String[] keys = {"legend_base", "legend_tower", "legend_empty", "rotation_hint"};
+        String[] keys = {"legend_base", "legend_tower", "module_hint", "legend_empty", "rotation_hint"};
         int y = 128;
         for (String key : keys) {
             for (var line : font.split(label(key), imageWidth - 24)) {

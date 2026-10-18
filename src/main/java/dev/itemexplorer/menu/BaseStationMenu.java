@@ -4,6 +4,7 @@ import dev.itemexplorer.ModContent;
 import dev.itemexplorer.block.BaseStationBlockEntity;
 import dev.itemexplorer.block.BaseStationControllerBlock;
 import dev.itemexplorer.station.BaseStationStructure;
+import dev.itemexplorer.station.StationChunkLoading;
 import dev.itemexplorer.network.StorageNetwork;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerPlayer;
@@ -20,7 +21,7 @@ import net.minecraft.world.item.ItemStack;
 import java.util.ArrayList;
 import java.util.List;
 
-/** On-site structure diagnostics and an explicit station network switch. */
+/** On-site structure diagnostics and explicit network/chunk-maintenance switches. */
 public final class BaseStationMenu extends AbstractContainerMenu {
     private static final int DATA_SIZE = 3 + BaseStationStructure.TOTAL_PARTS;
     private final BaseStationBlockEntity station;
@@ -29,6 +30,7 @@ public final class BaseStationMenu extends AbstractContainerMenu {
     private final ContainerData data;
     private final long session = MenuSession.next();
     private long networkActionTick = Long.MIN_VALUE;
+    private long chunkActionTick = Long.MIN_VALUE;
     private CompoundTag networkView = new CompoundTag(), sentNetworkView;
     private final CableConnectionData cable = new CableConnectionData();
     public CableConnectionData cable() { return cable; }
@@ -70,6 +72,7 @@ public final class BaseStationMenu extends AbstractContainerMenu {
     public CompoundTag networkView() { return networkView; }
     public void acceptView(CompoundTag view) { networkView = view.copy(); }
     public boolean networkOnline() { return networkView.getBoolean("NetworkOnline"); }
+    public CompoundTag chunkLoadingView() { return networkView.getCompound("ChunkLoading"); }
     public void handleNetwork(StorageNetwork.StationNetworkRequest request) {
         if (station == null || request.menuId() != containerId || !stillValid(owner)) return;
         long tick = owner.level().getGameTime();
@@ -80,10 +83,37 @@ public final class BaseStationMenu extends AbstractContainerMenu {
             station.setNetworkOnline(request.online());
         syncNetwork(true);
     }
+    public void handleChunkLoading(StorageNetwork.StationChunkRequest request) {
+        if (station == null || request.menuId() != containerId || !stillValid(owner)) return;
+        long tick = owner.level().getGameTime();
+        if (request.session() != session || chunkActionTick == tick) return;
+        chunkActionTick = tick;
+        station.refreshStructure();
+        if (request.expectedRevision() == station.chunkLoadingRevision()
+                && (!request.enabled() || station.validation().complete() && chunkLoaderCount() > 0)) {
+            station.setChunkLoadingEnabled(request.enabled());
+        }
+        syncNetwork(true);
+    }
+    private int chunkLoaderCount() {
+        return BaseStationStructure.countChunkLoaders(owner.level(), pos,
+                station.getBlockState().getValue(BaseStationControllerBlock.FACING));
+    }
     private void syncNetwork(boolean force) {
         if (station == null || !(owner instanceof ServerPlayer player)) return;
         CompoundTag view = new CompoundTag();
         view.putLong("Session", session); view.putBoolean("NetworkOnline", station.networkOnline());
+        CompoundTag chunks = new CompoundTag();
+        chunks.putBoolean("Enabled", station.chunkLoadingEnabled());
+        chunks.putBoolean("Active", station.chunkLoadingActive());
+        chunks.putString("Status", station.chunkLoadingStatus());
+        chunks.putLong("Revision", station.chunkLoadingRevision());
+        chunks.putInt("ModuleCount", chunkLoaderCount());
+        chunks.putInt("ActiveStations", StationChunkLoading.activeStationCount(player.server));
+        chunks.putInt("MaxStations", StationChunkLoading.maxActiveStations());
+        chunks.putInt("Radius", StationChunkLoading.RADIUS);
+        view.put("ChunkLoading", chunks);
+        networkView = view;
         if (force || !view.equals(sentNetworkView)) {
             StorageNetwork.snapshot(player, containerId, view); sentNetworkView = view;
         }

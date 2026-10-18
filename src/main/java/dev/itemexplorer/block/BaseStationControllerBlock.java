@@ -2,9 +2,11 @@ package dev.itemexplorer.block;
 
 import dev.itemexplorer.ModContent;
 import dev.itemexplorer.station.BaseStationStructure;
+import dev.itemexplorer.station.StationChunkLoading;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.player.Player;
@@ -63,6 +65,8 @@ public final class BaseStationControllerBlock extends BaseEntityBlock {
             BaseStationStructure.refreshNearby(level, pos);
     }
     @Override public void onRemove(BlockState state, Level level, BlockPos pos, BlockState next, boolean moving) {
+        if ((!state.is(next.getBlock()) || state.getValue(FACING) != next.getValue(FACING))
+                && level instanceof ServerLevel serverLevel) StationChunkLoading.release(serverLevel, pos);
         super.onRemove(state, level, pos, next, moving);
         if (!state.is(next.getBlock()) || state.getValue(FACING) != next.getValue(FACING))
             BaseStationStructure.refreshNearby(level, pos);

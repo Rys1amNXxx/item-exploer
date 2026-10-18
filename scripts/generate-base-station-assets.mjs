@@ -12,7 +12,7 @@ const id = part => 'base_station_' + part;
 const resource = part => 'itemexplorer:' + id(part);
 const texture = name => 'itemexplorer:block/base_station/' + name;
 const model = part => 'itemexplorer:block/' + id(part);
-const parts = ['casing', 'controller', 'network_port', 'module', 'mast', 'antenna', 'cap'];
+const parts = ['casing', 'controller', 'network_port', 'module', 'chunk_loader', 'mast', 'antenna', 'cap'];
 const directions = ['north', 'east', 'south', 'west', 'up', 'down'];
 const rotations = { north: 0, east: 90, south: 180, west: 270 };
 function write(path, value) {
@@ -94,6 +94,19 @@ for (const [part, front] of [['controller', 'controller_front_off'], ['network_p
   const body = structuredClone(full); body.faces.north.texture = '#front';
   saveModel(part, [body], { ...casingTextures, front: texture(front) });
 }
+// A recessed panel with nine raised tiles distinguishes the 3x3 chunk module.
+// It shares the station's reviewed textures; the center tile marks its controller chunk.
+const chunkBody = structuredClone(full);
+chunkBody.from[2] = 0.25;
+chunkBody.faces.north = { texture: '#front', uv: [0, 0, 16, 16] };
+const chunkElements = [chunkBody];
+for (let row = 0; row < 3; row++) for (let col = 0; col < 3; col++) {
+  const x = 3.5 + col * 3.25, y = 3.5 + row * 3.25;
+  const tile = cuboid([x, y, 0], [x + 2.5, y + 2.5, 0.125], 'metal', ['north', 'east', 'south', 'west', 'up', 'down'], [0, 0, 2.5, 2.5]);
+  tile.faces.north = { texture: '#signal', uv: row === 1 && col === 1 ? [4, 3, 5, 4] : [12, 3.5, 13, 4.5] };
+  chunkElements.push(tile);
+}
+saveModel('chunk_loader', chunkElements, { ...casingTextures, front: texture('blank_module'), metal: texture('metal_uv'), signal: texture('controller_front_online') });
 // The green source texture means "structure formed" here, not an online transport link.
 write(assets + 'models/block/' + id('controller_formed') + '.json', { parent: model('controller'), textures: { front: texture('controller_front_online') } });
 
@@ -186,6 +199,7 @@ const recipes = {
   controller: { pattern: [' G ', 'RCR', ' I '], key: { G: 'minecraft:glass_pane', R: 'minecraft:redstone', C: resource('casing'), I: 'minecraft:iron_ingot' } },
   network_port: { pattern: [' R ', 'ICI', ' R '], key: { R: 'minecraft:redstone', I: 'minecraft:iron_nugget', C: resource('casing') } },
   module: { pattern: [' I ', ' C '], key: { I: 'minecraft:iron_nugget', C: resource('casing') } },
+  chunk_loader: { pattern: ['GEG', 'RMR', ' C '], key: { G: 'minecraft:gold_ingot', E: 'minecraft:ender_pearl', R: 'minecraft:redstone', M: resource('module'), C: 'minecraft:comparator' } },
   mast: { pattern: [' I ', ' B ', ' I '], key: { I: 'minecraft:iron_ingot', B: 'minecraft:iron_bars' }, count: 3 },
   antenna: { pattern: ['IGI', ' R ', ' B '], key: { I: 'minecraft:iron_nugget', G: 'minecraft:glass_pane', R: 'minecraft:redstone', B: 'minecraft:iron_bars' }, count: 4 },
   cap: { pattern: [' I ', ' B ', 'NNN'], key: { I: 'minecraft:iron_nugget', B: 'minecraft:iron_bars', N: 'minecraft:iron_ingot' } },
@@ -196,7 +210,7 @@ for (const [part, recipe] of Object.entries(recipes)) {
     type: 'minecraft:crafting_shaped', category: 'redstone', pattern,
     key: Object.fromEntries(Object.entries(key).map(([symbol, item]) => [symbol, { item }])), result: { item: resource(part), count },
   });
-  const ingredient = part === 'casing' ? 'minecraft:iron_ingot' : ['controller', 'network_port', 'module'].includes(part) ? resource('casing') : 'minecraft:iron_bars';
+  const ingredient = part === 'chunk_loader' ? resource('module') : part === 'casing' ? 'minecraft:iron_ingot' : ['controller', 'network_port', 'module'].includes(part) ? resource('casing') : 'minecraft:iron_bars';
   write('data/itemexplorer/advancements/recipes/' + id(part) + '.json', {
     parent: 'minecraft:recipes/root', criteria: {
       has_material: { trigger: 'minecraft:inventory_changed', conditions: { items: [{ items: [ingredient] }] } },
@@ -212,4 +226,4 @@ const group = '#itemexplorer:base_station_parts';
 if (!mining.values.includes(group)) mining.values.push(group);
 write(miningPath, mining);
 
-console.log('Generated 7 base station blocks/items, 11 block models, 16 textures, recipes, loot and recipe unlocks.');
+console.log('Generated 8 base station blocks/items, 12 block models, 16 textures, recipes, loot and recipe unlocks.');

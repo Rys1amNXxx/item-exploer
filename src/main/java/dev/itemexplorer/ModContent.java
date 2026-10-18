@@ -82,6 +82,8 @@ public final class ModContent {
             () -> new BaseStationPartBlock(BaseStationPartBlock.Part.NETWORK_PORT));
     public static final RegistryObject<Block> BASE_STATION_MODULE_BLOCK = BLOCKS.register("base_station_module",
             () -> new BaseStationPartBlock(BaseStationPartBlock.Part.MODULE));
+    public static final RegistryObject<Block> BASE_STATION_CHUNK_LOADER_BLOCK = BLOCKS.register("base_station_chunk_loader",
+            () -> new BaseStationPartBlock(BaseStationPartBlock.Part.MODULE));
     public static final RegistryObject<Block> BASE_STATION_MAST_BLOCK = BLOCKS.register("base_station_mast", BaseStationMastBlock::new);
     public static final RegistryObject<Block> BASE_STATION_ANTENNA_BLOCK = BLOCKS.register("base_station_antenna",
             () -> new BaseStationPartBlock(BaseStationPartBlock.Part.ANTENNA));
@@ -91,6 +93,7 @@ public final class ModContent {
     public static final RegistryObject<Item> BASE_STATION_CONTROLLER_ITEM = blockItem("base_station_controller", BASE_STATION_CONTROLLER_BLOCK);
     public static final RegistryObject<Item> BASE_STATION_NETWORK_PORT_ITEM = blockItem("base_station_network_port", BASE_STATION_NETWORK_PORT_BLOCK);
     public static final RegistryObject<Item> BASE_STATION_MODULE_ITEM = blockItem("base_station_module", BASE_STATION_MODULE_BLOCK);
+    public static final RegistryObject<Item> BASE_STATION_CHUNK_LOADER_ITEM = blockItem("base_station_chunk_loader", BASE_STATION_CHUNK_LOADER_BLOCK);
     public static final RegistryObject<Item> BASE_STATION_MAST_ITEM = blockItem("base_station_mast", BASE_STATION_MAST_BLOCK);
     public static final RegistryObject<Item> BASE_STATION_ANTENNA_ITEM = blockItem("base_station_antenna", BASE_STATION_ANTENNA_BLOCK);
     public static final RegistryObject<Item> BASE_STATION_CAP_ITEM = blockItem("base_station_cap", BASE_STATION_CAP_BLOCK);
@@ -126,6 +129,7 @@ public final class ModContent {
                         output.accept(BASE_STATION_CASING_ITEM.get());
                         output.accept(BASE_STATION_NETWORK_PORT_ITEM.get());
                         output.accept(BASE_STATION_MODULE_ITEM.get());
+                        output.accept(BASE_STATION_CHUNK_LOADER_ITEM.get());
                         output.accept(BASE_STATION_MAST_ITEM.get());
                         output.accept(BASE_STATION_ANTENNA_ITEM.get());
                         output.accept(BASE_STATION_CAP_ITEM.get());

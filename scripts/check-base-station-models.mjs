@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('../src/main/resources/', import.meta.url));
 const assets = root + 'assets/itemexplorer/';
-const parts = ['casing', 'controller', 'network_port', 'module', 'mast', 'antenna', 'cap'];
+const parts = ['casing', 'controller', 'network_port', 'module', 'chunk_loader', 'mast', 'antenna', 'cap'];
 const facings = ['north', 'east', 'south', 'west'];
 const read = path => JSON.parse(readFileSync(path, 'utf8'));
 const modelPath = id => assets + 'models/' + id.replace('itemexplorer:', '') + '.json';
@@ -139,4 +139,4 @@ const mining = read(root + 'data/minecraft/tags/blocks/mineable/pickaxe.json');
 assert(mining.values.includes('#itemexplorer:base_station_parts'));
 const miningParts = read(root + 'data/itemexplorer/tags/blocks/base_station_parts.json');
 for (const part of parts) assert(miningParts.values.includes('itemexplorer:base_station_' + part));
-console.log(`Verified ${models} models, ${variants} complete blockstates, ${textures} opaque textures, 7 recipes/loot/unlocks, and 4 continuous antenna connections; no overlapping coplanar faces or solid cuboids.`);
+console.log(`Verified ${models} models, ${variants} complete blockstates, ${textures} opaque textures, ${parts.length} recipes/loot/unlocks, and 4 continuous antenna connections; no overlapping coplanar faces or solid cuboids.`);

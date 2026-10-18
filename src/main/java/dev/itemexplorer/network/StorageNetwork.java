@@ -27,7 +27,7 @@ import java.util.UUID;
 import java.util.function.Supplier;
 
 public final class StorageNetwork {
-    private static final String VERSION = "15";
+    private static final String VERSION = "16";
     private static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
             new ResourceLocation(ItemExplorer.MOD_ID, "storage"), () -> VERSION, VERSION::equals, VERSION::equals);
 
@@ -95,6 +95,24 @@ public final class StorageNetwork {
                 ServerPlayer player = context.get().getSender();
                 if (player != null && player.containerMenu instanceof BaseStationMenu menu
                         && menu.containerId == menuId && menu.stillValid(player)) menu.handleNetwork(this);
+            });
+            context.get().setPacketHandled(true);
+        }
+    }
+
+    /** Only the currently open physical controller can change its server-owned chunk tickets. */
+    public record StationChunkRequest(int menuId, long session, long expectedRevision, boolean enabled) {
+        public static StationChunkRequest decode(FriendlyByteBuf buf) {
+            return new StationChunkRequest(buf.readVarInt(), buf.readLong(), buf.readLong(), buf.readBoolean());
+        }
+        public void encode(FriendlyByteBuf buf) {
+            buf.writeVarInt(menuId); buf.writeLong(session); buf.writeLong(expectedRevision); buf.writeBoolean(enabled);
+        }
+        public void handle(Supplier<NetworkEvent.Context> context) {
+            context.get().enqueueWork(() -> {
+                ServerPlayer player = context.get().getSender();
+                if (player != null && player.containerMenu instanceof BaseStationMenu menu
+                        && menu.containerId == menuId && menu.stillValid(player)) menu.handleChunkLoading(this);
             });
             context.get().setPacketHandled(true);
         }
@@ -322,6 +340,8 @@ public final class StorageNetwork {
                 Optional.of(NetworkDirection.PLAY_TO_SERVER));
         CHANNEL.registerMessage(10, PortableRequest.class, PortableRequest::encode, PortableRequest::decode, PortableRequest::handle,
                 Optional.of(NetworkDirection.PLAY_TO_SERVER));
+        CHANNEL.registerMessage(11, StationChunkRequest.class, StationChunkRequest::encode, StationChunkRequest::decode, StationChunkRequest::handle,
+                Optional.of(NetworkDirection.PLAY_TO_SERVER));
     }
 
     public static void request(Request request) { CHANNEL.sendToServer(request); }
@@ -332,6 +352,7 @@ public final class StorageNetwork {
     public static void request(FileRequest request) { CHANNEL.sendToServer(request); }
     public static void request(TransferRequest request) { CHANNEL.sendToServer(request); }
     public static void request(StationNetworkRequest request) { CHANNEL.sendToServer(request); }
+    public static void request(StationChunkRequest request) { CHANNEL.sendToServer(request); }
     public static void request(PortableRequest request) { CHANNEL.sendToServer(request); }
     public static void searchCatalog(ServerPlayer player, SearchCatalog packet) {
         CHANNEL.send(PacketDistributor.PLAYER.with(() -> player), packet);

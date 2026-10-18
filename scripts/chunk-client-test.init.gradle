@@ -1,0 +1,35 @@
+// Isolated rendered UI acceptance; test classes never enter the mod JAR.
+gradle.beforeProject { p -> p.afterEvaluate {
+    p.sourceSets.create('chunkClientTest') {
+        java.srcDir 'src/chunkClientTest/java'
+        compileClasspath += p.sourceSets.main.output + p.sourceSets.main.compileClasspath
+        runtimeClasspath += output + compileClasspath
+    }
+    def probeDirectory = p.file('work/chunk-loading-client')
+    def run = p.minecraft.runs.client
+    run.workingDirectory = probeDirectory
+    run.property 'itemexplorer.chunkClientProbe', probeDirectory.absolutePath
+    run.jvmArgs '-Xms256m', '-Xmx1536m'
+    run.mods.itemexplorer.source p.sourceSets.chunkClientTest
+    run.args '--username', 'ChunkProbe', '--width', '960', '--height', '720', '--quickPlaySingleplayer', 'Base Station Probe'
+    p.tasks.matching { it.name == 'runClient' }.configureEach {
+        doFirst {
+            def worldDirectory = new File(probeDirectory, 'saves/Base Station Probe')
+            if (!new File(worldDirectory, 'level.dat').isFile()) {
+                def sourceWorld = p.file('work/remote-transfer-client/saves/Base Station Probe')
+                if (!new File(sourceWorld, 'level.dat').isFile())
+                    throw new GradleException('Prepare the disposable remote-transfer-client Base Station Probe fixture first')
+                p.copy { from sourceWorld; into worldDirectory }
+            }
+            new File(probeDirectory, 'options.txt').setText('lang:zh_cn\nguiScale:2\npauseOnLostFocus:false\nrenderDistance:4\nsimulationDistance:5\nfullscreen:false\n', 'UTF-8')
+            def result = new File(probeDirectory, 'result.txt')
+            if (result.exists() && (!result.isFile() || !result.delete()))
+                throw new GradleException('Could not clear isolated chunk-loading-client result.txt')
+        }
+        doLast {
+            def result = new File(probeDirectory, 'result.txt')
+            if (!result.isFile() || result.getText('UTF-8').trim() != 'PASS')
+                throw new GradleException('Chunk client acceptance failed; inspect work/chunk-loading-client/report.txt')
+        }
+    }
+} }

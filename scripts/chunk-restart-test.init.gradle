@@ -1,0 +1,15 @@
+// Two dedicated-server JVMs in a new disposable world; this source set never enters the release JAR.
+gradle.beforeProject { p -> p.afterEvaluate {
+    p.sourceSets.create('chunkRestartProbe') {
+        java.srcDir 'src/chunkRestartTest/java'
+        compileClasspath += p.sourceSets.main.output + p.sourceSets.main.compileClasspath
+        runtimeClasspath += output + compileClasspath
+    }
+    def directory = p.file(p.findProperty('chunkRestartDirectory') ?: 'work/chunk-loading-restart/standalone')
+    p.minecraft.runs.server {
+        workingDirectory directory
+        property 'itemexplorer.chunkRestartProbe', p.findProperty('chunkRestartPhase') ?: 'verify'
+        property 'itemexplorer.chunkRestartRoot', directory.absolutePath
+        mods.itemexplorer.source p.sourceSets.chunkRestartProbe
+    }
+} }

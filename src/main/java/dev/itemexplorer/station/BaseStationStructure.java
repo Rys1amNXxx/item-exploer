@@ -80,7 +80,7 @@ public final class BaseStationStructure {
             if (!loaded.test(required.pos())) reason = Reason.UNLOADED;
             else {
                 BlockState state = states.apply(required.pos());
-                if (!state.is(block(required.part()))) reason = state.isAir() ? Reason.MISSING : Reason.WRONG_BLOCK;
+                if (!matches(required.part(), state)) reason = state.isAir() ? Reason.MISSING : Reason.WRONG_BLOCK;
                 else if (required.facing() != null && state.getValue(BaseStationControllerBlock.FACING) != required.facing())
                     reason = Reason.WRONG_FACING;
             }
@@ -88,6 +88,23 @@ public final class BaseStationStructure {
             else issues.add(new Issue(required.pos(), required.part(), reason));
         }
         return new Result(matched, TOTAL_PARTS, issues);
+    }
+
+    /** Upgrade modules retain the blank module's slot and outward-facing requirement. */
+    public static boolean matches(Part part, BlockState state) {
+        return state.is(block(part)) || part == Part.MODULE && state.is(ModContent.BASE_STATION_CHUNK_LOADER_BLOCK.get());
+    }
+
+    /** Counts installed modules only; inspecting a station never loads a missing chunk. */
+    public static int countChunkLoaders(Level level, BlockPos controller, Direction front) {
+        int count = 0;
+        for (Requirement required : requirements(controller, front)) {
+            if (required.part() != Part.MODULE || !level.hasChunkAt(required.pos())) continue;
+            BlockState state = level.getBlockState(required.pos());
+            if (state.is(ModContent.BASE_STATION_CHUNK_LOADER_BLOCK.get())
+                    && state.getValue(BaseStationControllerBlock.FACING) == required.facing()) count++;
+        }
+        return count;
     }
 
     public static Block block(Part part) {
