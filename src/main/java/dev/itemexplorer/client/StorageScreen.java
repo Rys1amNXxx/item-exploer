@@ -60,6 +60,8 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
     private int selected = -1, selectedProgram = -1, folderScroll, lastFolder = -1, dragCandidate = -1;
     private double pressX, pressY;
     private boolean dragging, choosingTarget, modal, renaming, programModal;
+    /** Backpack quick-moves raised by one mouse release, bit = menu slot; null outside a release. */
+    private Long releaseQuickMoves;
     private final Set<Integer> collapsed = new HashSet<>();
     private final Set<Integer> parents = new HashSet<>();
     private CompoundTag cachedView;
@@ -176,7 +178,8 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
     private void send(Action action, int id, int target, long amount, String text) {
         if (!menu.view().contains("Revision") || awaitingVolume) return;
         if (searching && (action == Action.MOVE || action == Action.WITHDRAW
-                || action == Action.DEPOSIT_CURSOR || action == Action.DEPOSIT_SLOT || action == Action.SORT)) return;
+                || action == Action.DEPOSIT_CURSOR || action == Action.DEPOSIT_SLOT || action == Action.DEPOSIT_SLOTS
+                || action == Action.SORT)) return;
         if (action == Action.MOVE && target < 0) { error = "cross_disk"; errorUntil = Util.getMillis() + 4500; return; }
         StorageNetwork.request(new StorageNetwork.Request(menu.containerId, menu.view().getLong("Revision"), action, id, target, amount, text, menu.view().getLong("Session")));
         if (action == Action.SELECT_VOLUME) { awaitingVolume = true; volumeRequestedAt = Util.getMillis(); }
@@ -983,7 +986,9 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
         if (awaitingVolume) return;
         if (type == net.minecraft.world.inventory.ClickType.QUICK_MOVE && slot != null
                 && slotId >= 0 && slotId < StorageMenu.PLAYER_SLOT_COUNT) {
-            if (slot.hasItem() && !searching && !menu.view().getBoolean("Searching")) send(Action.DEPOSIT_SLOT, slotId, 0, 0, "");
+            if (!slot.hasItem() || searching || menu.view().getBoolean("Searching")) return;
+            if (releaseQuickMoves != null) releaseQuickMoves |= 1L << slotId;
+            else send(Action.DEPOSIT_SLOT, slotId, 0, 0, "");
         } else super.slotClicked(slot, slotId, button, type);
     }
 
@@ -1003,7 +1008,17 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
             if (target != null) send(Action.MOVE, dragCandidate, target.id, amount(), "");
         }
         dragging = false; dragCandidate = -1;
-        return wasDragging || super.mouseReleased(x, y, button);
+        if (wasDragging) return true;
+        // Vanilla Shift + double-click quick-moves each matching slot in the same frame. Separate requests would all
+        // carry the revision from before the first deposit, so every one after the first would be rejected as stale.
+        releaseQuickMoves = 0L;
+        boolean handled;
+        long quickMoves;
+        try { handled = super.mouseReleased(x, y, button); }
+        finally { quickMoves = releaseQuickMoves; releaseQuickMoves = null; }
+        if (Long.bitCount(quickMoves) == 1) send(Action.DEPOSIT_SLOT, Long.numberOfTrailingZeros(quickMoves), 0, 0, "");
+        else if (quickMoves != 0) send(Action.DEPOSIT_SLOTS, 0, 0, quickMoves, "");
+        return handled;
     }
 
     @Override

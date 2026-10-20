@@ -428,6 +428,22 @@ public final class StorageMenu extends AbstractContainerMenu {
         if (count == 0) { message = "full"; return; }
         source.shrink(count); slot.setChanged(); message = "deposited";
     }
+    /** Vanilla's Shift + double-click quick-moves every matching backpack slot; one request deposits each listed slot. */
+    private void depositSlots(StorageAccess storage, long slotMask) {
+        if (slotMask == 0 || slotMask >>> PLAYER_SLOT_COUNT != 0) throw new IllegalArgumentException("missing_item");
+        for (int index = 0; index < PLAYER_SLOT_COUNT; index++)
+            if ((slotMask & 1L << index) != 0 && lockedSlot(index)) throw new IllegalArgumentException("portable_device_in_use");
+        boolean deposited = false, full = false;
+        for (int index = 0; index < PLAYER_SLOT_COUNT; index++) {
+            if ((slotMask & 1L << index) == 0) continue;
+            Slot slot = slots.get(index); ItemStack source = slot.getItem();
+            if (source.isEmpty()) continue;
+            int count = storage.insert(source, source.getCount(), currentFolder);
+            if (count == 0) { full = true; continue; }
+            source.shrink(count); slot.setChanged(); deposited = true;
+        }
+        if (deposited) message = "deposited"; else if (full) message = "full";
+    }
     public void handle(StorageNetwork.Request request) {
         if (request.menuId() != containerId || !stillValid(player)) return;
         if (!allowAction()) return;
@@ -444,7 +460,10 @@ public final class StorageMenu extends AbstractContainerMenu {
         boolean navigation = request.action() == StorageNetwork.Action.OPEN || request.action() == StorageNetwork.Action.PAGE
                 || request.action() == StorageNetwork.Action.RESIZE || request.action() == StorageNetwork.Action.SELECT_VOLUME;
         if (!navigation && storage != null && storage.isLocked()) { message = "storage_locked"; sync(true); return; }
-        if (!navigation && storage != null && request.revision() != storage.revision()) { message = "stale"; sync(true); return; }
+        // The batch follows the first shift-click's deposit before its new revision reaches the client.
+        // Depositing from the player's own backpack does not depend on the viewed contents; session and lock checks still apply.
+        boolean revisionFree = request.action() == StorageNetwork.Action.DEPOSIT_SLOTS;
+        if (!navigation && !revisionFree && storage != null && request.revision() != storage.revision()) { message = "stale"; sync(true); return; }
         long amount = Math.max(0, request.amount()); message = "";
         try {
             if (request.action() == StorageNetwork.Action.SELECT_VOLUME) {
@@ -489,6 +508,7 @@ public final class StorageMenu extends AbstractContainerMenu {
                         if (count > 0) { carried.shrink(count); setCarried(carried); message = "deposited"; } else message = "full";
                     }
                     case DEPOSIT_SLOT -> depositSlot(storage, request.id());
+                    case DEPOSIT_SLOTS -> depositSlots(storage, request.amount());
                     default -> { }
                 }
             }

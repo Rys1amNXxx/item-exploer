@@ -154,9 +154,10 @@ public final class PortableTerminalTests {
             v.menu.clicked(27, 1, ClickType.THROW, v.player);
             v.menu.clicked(0, 0, ClickType.SWAP, v.player);
             v.menu.handle(request(v.menu, Action.DEPOSIT_SLOT, 27, 0, ""));
+            v.menu.handle(request(v.menu, Action.DEPOSIT_SLOTS, 0, 1L << 27 | 1L, ""));
             h.assertTrue(v.player.getMainHandItem() == device && v.menu.getCarried().isEmpty()
                             && station.first().inventory().total() == 0 && carried(v.player, Items.DIAMOND) == 2,
-                    "A vanilla click or forged deposit moved the active handheld device");
+                    "A vanilla click, forged deposit or batch naming the device moved anything");
             v.menu.handle(request(v.menu, Action.DEPOSIT_SLOT, 0, 0, ""));
             h.assertTrue(station.first().inventory().total() == 2 && carried(v.player, Items.DIAMOND) == 0,
                     "Protecting the device also blocked ordinary inventory deposits");

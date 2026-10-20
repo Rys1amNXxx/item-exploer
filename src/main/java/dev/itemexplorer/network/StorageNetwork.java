@@ -27,11 +27,11 @@ import java.util.UUID;
 import java.util.function.Supplier;
 
 public final class StorageNetwork {
-    private static final String VERSION = "16";
+    private static final String VERSION = "17";
     private static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
             new ResourceLocation(ItemExplorer.MOD_ID, "storage"), () -> VERSION, VERSION::equals, VERSION::equals);
 
-    public enum Action { OPEN, PAGE, CREATE, RENAME, DELETE, MOVE, WITHDRAW, DEPOSIT_CURSOR, RESIZE, SELECT_VOLUME, RENAME_DISK, DEPOSIT_SLOT, SORT, SET_DEFAULT_VOLUME }
+    public enum Action { OPEN, PAGE, CREATE, RENAME, DELETE, MOVE, WITHDRAW, DEPOSIT_CURSOR, RESIZE, SELECT_VOLUME, RENAME_DISK, DEPOSIT_SLOT, SORT, SET_DEFAULT_VOLUME, DEPOSIT_SLOTS }
     public enum SearchAction { START, APPLY, PAGE, RESIZE, EXIT, LOCATE, TAKE }
     public enum TransferAction { REFRESH, NAME, BIND, RECEIVING, SEND }
     public enum PortableAction { ENABLE, REVOKE_ALL }
