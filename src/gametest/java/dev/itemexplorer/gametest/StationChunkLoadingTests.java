@@ -257,7 +257,6 @@ public final class StationChunkLoadingTests {
 
     @GameTest(template = "empty")
     public static void globalLimitRejectsAdditionalStationAndReleasedSlotCanBeReused(GameTestHelper h) {
-        int original = StationChunkLoadingConfig.MAX_ACTIVE_STATIONS.get();
         try (Scene scene = new Scene(h)) {
             int existing = StationChunkLoading.activeStationCount(h.getLevel().getServer());
             StationChunkLoadingConfig.MAX_ACTIVE_STATIONS.set(existing + 1);
@@ -273,7 +272,11 @@ public final class StationChunkLoadingTests {
             StationChunkLoading.reconcile(b.controller());
             assertTickets(h, b.controller(), true, "Released global slot can be reused");
             h.succeed();
-        } finally { StationChunkLoadingConfig.MAX_ACTIVE_STATIONS.set(original); }
+        } finally {
+            // set() also writes the persistent test world's config file. Restoring the value read at the start would
+            // keep a limit left behind by an interrupted run forever, so always return to the default.
+            StationChunkLoadingConfig.MAX_ACTIVE_STATIONS.set(StationChunkLoadingConfig.MAX_ACTIVE_STATIONS.getDefault());
+        }
     }
 
     private static BaseStationMenu physicalMenu(ServerPlayer player, BaseStationBlockEntity controller, int id) {
