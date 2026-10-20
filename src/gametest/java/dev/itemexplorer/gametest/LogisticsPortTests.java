@@ -1,6 +1,5 @@
 package dev.itemexplorer.gametest;
 
-import com.mojang.authlib.GameProfile;
 import dev.itemexplorer.ItemExplorer;
 import dev.itemexplorer.ModContent;
 import dev.itemexplorer.block.*;
@@ -15,20 +14,20 @@ import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.network.FriendlyByteBuf;
-import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.HopperBlock;
 import net.minecraft.world.level.block.entity.HopperBlockEntity;
 import net.minecraftforge.common.capabilities.ForgeCapabilities;
-import net.minecraftforge.common.util.FakePlayer;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 import net.minecraftforge.items.IItemHandler;
 import net.minecraftforge.items.ItemHandlerHelper;
 
 import java.util.UUID;
+
+import static dev.itemexplorer.gametest.GameTestSupport.*;
 
 @GameTestHolder(ItemExplorer.MOD_ID)
 @PrefixGameTestTemplate(false)
@@ -171,10 +170,6 @@ public final class LogisticsPortTests {
         var source = (HopperBlockEntity) h.getLevel().getBlockEntity(sourcePos); var destination = (HopperBlockEntity) h.getLevel().getBlockEntity(destinationPos);
         source.setItem(0, new ItemStack(Items.IRON_INGOT, 16));
         h.succeedWhen(() -> h.assertTrue(source.isEmpty() && destination.getItem(0).getCount() == 16 && nas.volume(0).inventory().total() == 0, "Hoppers have not conserved and transferred all 16 items"));
-    }
-    private static ServerPlayer player(GameTestHelper h, BlockPos pos) {
-        ServerPlayer player = new FakePlayer(h.getLevel(), new GameProfile(UUID.randomUUID(), "port-test")) { @Override public boolean hasDisconnected() { return false; } };
-        player.setPos(pos.getX()+.5, pos.getY()+.5, pos.getZ()+.5); return player;
     }
     private static StorageNetwork.PortRequest request(LogisticsPortMenu menu, CompoundTag view, String volume) {
         return new StorageNetwork.PortRequest(menu.containerId, view.getLong("Session"), view.getLong("Context"), view.getLong("Revision"), StorageNetwork.PortAction.APPLY, volume, 0, true, true, false);

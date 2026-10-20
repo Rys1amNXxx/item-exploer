@@ -12,14 +12,14 @@ import net.minecraft.core.Direction;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.nbt.CompoundTag;
-import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.level.block.entity.AbstractFurnaceBlockEntity;
 import net.minecraft.world.level.block.entity.FurnaceBlockEntity;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
+
+import static dev.itemexplorer.gametest.GameTestSupport.*;
 
 @GameTestHolder(ItemExplorer.MOD_ID)
 @PrefixGameTestTemplate(false)
@@ -53,20 +53,6 @@ public final class TerminalProgramSafetyTests {
                 entry(inventory, input, Items.SAND), entry(inventory, fuel, Items.COAL)), first.getBlockPos(), first.identity());
         return new Fixture(terminal, first, second, (FurnaceBlockEntity) level.getBlockEntity(firstPos),
                 (FurnaceBlockEntity) level.getBlockEntity(secondPos), firstPos.north(2), file, input, fuel, output);
-    }
-    private static int entry(StorageInventory inventory, int folder, Item item) {
-        return inventory.entries().stream().filter(e -> e.folder() == folder && e.stack().is(item))
-                .mapToInt(StorageInventory.Entry::id).findFirst().orElseThrow();
-    }
-    private static long count(StorageInventory inventory, int folder, Item item) {
-        return inventory.entries().stream().filter(e -> e.folder() == folder && e.stack().is(item))
-                .mapToLong(StorageInventory.Entry::count).sum();
-    }
-    private static void cook(FurnaceBlockEntity furnace, ProductionPortBlockEntity port, int ticks) {
-        for (int i = 0; i < ticks; i++) {
-            AbstractFurnaceBlockEntity.serverTick(furnace.getLevel(), furnace.getBlockPos(), furnace.getBlockState(), furnace);
-            port.workTick();
-        }
     }
     private static void launch(Fixture f, ProductionPortBlockEntity port, int count) {
         port.startProgram(f.terminal, f.file, f.terminal.programs().file(f.file).definition(), count);

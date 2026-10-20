@@ -1,6 +1,5 @@
 package dev.itemexplorer.gametest;
 
-import com.mojang.authlib.GameProfile;
 import dev.itemexplorer.ItemExplorer;
 import dev.itemexplorer.ModContent;
 import dev.itemexplorer.block.BaseStationBlockEntity;
@@ -20,13 +19,13 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtUtils;
 import net.minecraft.nbt.Tag;
 import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.ForcedChunksSavedData;
 import net.minecraft.world.level.block.Blocks;
-import net.minecraftforge.common.util.FakePlayer;
 import net.minecraftforge.common.world.ForgeChunkManager;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
@@ -35,7 +34,8 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.UUID;
+
+import static dev.itemexplorer.gametest.GameTestSupport.*;
 
 /** Inspect Forge's actual persistent tickets; do not substitute the feature's status flag for chunk ownership. */
 @GameTestHolder(ItemExplorer.MOD_ID)
@@ -232,11 +232,8 @@ public final class StationChunkLoadingTests {
             station.controller().setNetworkOnline(true);
             station.first().setPortableEnabled(true);
             station.first().inventory().insert(new ItemStack(Items.IRON_INGOT, 31), 31, 0);
-            var player = new FakePlayer(h.getLevel(), new GameProfile(UUID.randomUUID(), "chunk-portable-test")) {
-                @Override public boolean hasDisconnected() { return false; }
-            };
             var terminalPos = station.first().getBlockPos();
-            player.setPos(terminalPos.getX() + .5, terminalPos.getY() + .5, terminalPos.getZ() + .5);
+            var player = player(h, terminalPos);
             player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(ModContent.PORTABLE_TERMINAL_ITEM.get()));
             h.assertTrue(PortableAccess.pair(player, InteractionHand.MAIN_HAND, station.first()).isEmpty(), "Could not pair fixture handheld");
             player.setPos(terminalPos.getX() + 4096, terminalPos.getY(), terminalPos.getZ() + 4096);
@@ -279,7 +276,7 @@ public final class StationChunkLoadingTests {
         } finally { StationChunkLoadingConfig.MAX_ACTIVE_STATIONS.set(original); }
     }
 
-    private static BaseStationMenu physicalMenu(FakePlayer player, BaseStationBlockEntity controller, int id) {
+    private static BaseStationMenu physicalMenu(ServerPlayer player, BaseStationBlockEntity controller, int id) {
         var menu = new BaseStationMenu(id, player.getInventory(), controller);
         player.containerMenu = menu;
         menu.broadcastChanges();
@@ -293,8 +290,7 @@ public final class StationChunkLoadingTests {
             module(h, station, Direction.EAST, true);
             var controller = station.controller();
             BlockPos pos = controller.getBlockPos();
-            var player = new FakePlayer(h.getLevel(), new GameProfile(UUID.randomUUID(), "chunk-policy-test"));
-            player.setPos(pos.getX() + .5, pos.getY() + .5, pos.getZ() + .5);
+            var player = player(h, pos);
             var menu = physicalMenu(player, controller, 1);
             var stale = new StorageNetwork.StationChunkRequest(menu.containerId, menu.networkView().getLong("Session"),
                     menu.chunkLoadingView().getLong("Revision"), true);
@@ -315,7 +311,7 @@ public final class StationChunkLoadingTests {
             player.setPos(pos.getX() + 128, pos.getY(), pos.getZ());
             menu.handleChunkLoading(disable);
             assertTickets(h, controller, true, "Out-of-range player cannot change loading policy");
-            player.setPos(pos.getX() + .5, pos.getY() + .5, pos.getZ() + .5);
+            standOn(player, pos);
             menu.handleChunkLoading(disable);
             assertTickets(h, controller, false, "Current nearby request can disable loading");
             h.succeed();

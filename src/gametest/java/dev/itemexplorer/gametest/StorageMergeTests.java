@@ -21,17 +21,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import static dev.itemexplorer.gametest.GameTestSupport.*;
+
 @GameTestHolder(ItemExplorer.MOD_ID)
 @PrefixGameTestTemplate(false)
 public final class StorageMergeTests {
-    private record Snapshot(Tag data, long total, long revision, long search, long transfers,
-                            List<CompoundTag> catalog) {
-        static Snapshot of(StorageInventory inventory) {
-            return new Snapshot(inventory.save(), inventory.total(), inventory.revision(),
-                    inventory.searchRevision(), inventory.transferRevision(), inventory.searchCatalog());
-        }
-    }
-
     private static ItemStack dirt(boolean emptyTag, int count) {
         ItemStack stack = new ItemStack(Items.DIRT, count);
         if (emptyTag) stack.setTag(new CompoundTag());

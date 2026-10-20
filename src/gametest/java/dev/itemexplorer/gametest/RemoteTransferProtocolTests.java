@@ -1,6 +1,5 @@
 package dev.itemexplorer.gametest;
 
-import com.mojang.authlib.GameProfile;
 import dev.itemexplorer.ItemExplorer;
 import dev.itemexplorer.block.StorageBlockEntity;
 import dev.itemexplorer.disk.DiskItem;
@@ -17,7 +16,6 @@ import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
-import net.minecraftforge.common.util.FakePlayer;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
@@ -30,17 +28,12 @@ public final class RemoteTransferProtocolTests {
     private record Viewer(ServerPlayer player, StorageMenu menu) {}
 
     private static Viewer open(GameTestHelper h, StorageBlockEntity terminal, int menuId) {
-        ServerPlayer player = new FakePlayer(h.getLevel(), new GameProfile(UUID.randomUUID(), "remote-protocol")) {
-            @Override public boolean hasDisconnected() { return false; }
-        };
-        return open(terminal, player, menuId);
+        return open(terminal, GameTestSupport.player(h), menuId);
     }
 
     private static Viewer open(StorageBlockEntity terminal, ServerPlayer player, int menuId) {
-        var pos = terminal.getBlockPos();
-        player.setPos(pos.getX() + .5, pos.getY() + 1, pos.getZ() + .5);
-        StorageMenu menu = new StorageMenu(menuId, player.getInventory(), pos, terminal);
-        player.containerMenu = menu;
+        GameTestSupport.standOn(player, terminal.getBlockPos());
+        StorageMenu menu = GameTestSupport.open(player, terminal, menuId);
         menu.broadcastChanges();
         return new Viewer(player, menu);
     }

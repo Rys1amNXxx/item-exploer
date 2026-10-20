@@ -1,10 +1,8 @@
 package dev.itemexplorer.gametest;
 
-import com.mojang.authlib.GameProfile;
 import dev.itemexplorer.ItemExplorer;
 import dev.itemexplorer.ModContent;
 import dev.itemexplorer.block.NasBlockEntity;
-import dev.itemexplorer.block.StorageBlockEntity;
 import dev.itemexplorer.disk.DiskItem;
 import dev.itemexplorer.disk.DiskTier;
 import dev.itemexplorer.menu.StorageMenu;
@@ -29,34 +27,18 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.alchemy.PotionUtils;
 import net.minecraft.world.item.alchemy.Potions;
-import net.minecraftforge.common.util.FakePlayer;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
-import java.util.UUID;
+
+import static dev.itemexplorer.gametest.GameTestSupport.*;
 
 @GameTestHolder(ItemExplorer.MOD_ID)
 @PrefixGameTestTemplate(false)
 public final class StorageSearchTests {
-    private record Opened(StorageBlockEntity entity, ServerPlayer player, StorageMenu menu) {}
-
-    private static Opened terminal(GameTestHelper helper) {
-        BlockPos local = new BlockPos(2, 2, 2);
-        helper.setBlock(local, ModContent.STORAGE_BLOCK.get());
-        var entity = (StorageBlockEntity) helper.getLevel().getBlockEntity(helper.absolutePos(local));
-        ServerPlayer player = new FakePlayer(helper.getLevel(), new GameProfile(UUID.randomUUID(), "search-test")) {
-            @Override public boolean hasDisconnected() { return false; }
-        };
-        BlockPos pos = entity.getBlockPos();
-        player.setPos(pos.getX() + .5, pos.getY() + 1, pos.getZ() + .5);
-        var menu = new StorageMenu(1, player.getInventory(), pos, entity);
-        player.containerMenu = menu;
-        return new Opened(entity, player, menu);
-    }
-
     private static StorageNetwork.Request normal(StorageMenu menu, Action action, int id, int target, long amount, String name) {
         CompoundTag view = menu.snapshot();
         return new StorageNetwork.Request(menu.containerId, view.getLong("Revision"), action, id, target, amount, name, view.getLong("Session"));
@@ -322,7 +304,7 @@ public final class StorageSearchTests {
 
     @GameTest(template = "empty")
     public static void searchOnlyAllowsWithdrawalFromThePublishedResultPage(GameTestHelper helper) {
-        Opened opened = terminal(helper);
+        Opened opened = openTerminal(helper);
         var storage = opened.entity().inventory();
         for (int i = 0; i < 3; i++) {
             ItemStack stack = new ItemStack(Items.IRON_INGOT, 8);
@@ -353,7 +335,7 @@ public final class StorageSearchTests {
 
     @GameTest(template = "empty")
     public static void forgedContextFieldsAndPreviousMenuSessionCannotWithdraw(GameTestHelper helper) {
-        Opened opened = terminal(helper);
+        Opened opened = openTerminal(helper);
         var storage = opened.entity().inventory();
         storage.insert(new ItemStack(Items.IRON_INGOT, 16), 16, 0);
         int id = storage.entries().get(0).id();
@@ -376,7 +358,7 @@ public final class StorageSearchTests {
 
     @GameTest(template = "empty")
     public static void newerQueryRejectsDelayedApplyAndTake(GameTestHelper helper) {
-        Opened opened = terminal(helper);
+        Opened opened = openTerminal(helper);
         var storage = opened.entity().inventory();
         storage.insert(new ItemStack(Items.IRON_INGOT, 16), 16, 0);
         storage.insert(new ItemStack(Items.DIAMOND, 16), 16, 0);
@@ -398,7 +380,7 @@ public final class StorageSearchTests {
 
     @GameTest(template = "empty")
     public static void recursiveMenuScopeRejectsSiblingIdsAndCanSwitchToVolume(GameTestHelper helper) {
-        Opened opened = terminal(helper);
+        Opened opened = openTerminal(helper);
         var storage = opened.entity().inventory();
         int root = storage.createFolder(0, "范围"), child = storage.createFolder(root, "子目录"), sibling = storage.createFolder(0, "其他");
         storage.insert(new ItemStack(Items.IRON_INGOT, 8), 8, root);
@@ -424,16 +406,12 @@ public final class StorageSearchTests {
 
     @GameTest(template = "empty")
     public static void simultaneousSearchMenusRejectSharedStaleTakeAndConserveItems(GameTestHelper helper) {
-        Opened first = terminal(helper);
+        Opened first = openTerminal(helper);
         var storage = first.entity().inventory();
         storage.insert(new ItemStack(Items.IRON_INGOT, 64), 64, 0);
         int id = storage.entries().get(0).id();
-        ServerPlayer secondPlayer = new FakePlayer(helper.getLevel(), new GameProfile(UUID.randomUUID(), "search-other")) {
-            @Override public boolean hasDisconnected() { return false; }
-        };
-        secondPlayer.setPos(first.player().getX(), first.player().getY(), first.player().getZ());
-        StorageMenu second = new StorageMenu(1, secondPlayer.getInventory(), first.entity().getBlockPos(), first.entity());
-        secondPlayer.containerMenu = second;
+        ServerPlayer secondPlayer = player(helper, first.entity().getBlockPos());
+        StorageMenu second = open(secondPlayer, first.entity());
         start(first.menu(), false, 6, id); start(second, false, 6, id);
         var delayed = search(second, SearchAction.TAKE, 0, 6, id, 48);
         first.menu().handleSearch(search(first.menu(), SearchAction.TAKE, 0, 6, id, 48));
@@ -449,7 +427,7 @@ public final class StorageSearchTests {
 
     @GameTest(template = "empty")
     public static void countChangeRejectsDelayedTakeWithoutInvalidatingSearchNames(GameTestHelper helper) {
-        Opened opened = terminal(helper);
+        Opened opened = openTerminal(helper);
         var storage = opened.entity().inventory();
         storage.insert(new ItemStack(Items.IRON_INGOT, 16), 16, 0);
         int id = storage.entries().get(0).id();
@@ -468,7 +446,7 @@ public final class StorageSearchTests {
 
     @GameTest(template = "empty", timeoutTicks = 100)
     public static void structuralChangeRejectsOldCatalogAndAcceptsRecomputedMatches(GameTestHelper helper) {
-        Opened opened = terminal(helper);
+        Opened opened = openTerminal(helper);
         var storage = opened.entity().inventory();
         storage.insert(new ItemStack(Items.IRON_INGOT, 16), 16, 0);
         int id = storage.entries().get(0).id();
@@ -491,7 +469,7 @@ public final class StorageSearchTests {
 
     @GameTest(template = "empty")
     public static void searchRejectsImplicitDepositsMovesAndNormalWithdrawal(GameTestHelper helper) {
-        Opened opened = terminal(helper);
+        Opened opened = openTerminal(helper);
         var storage = opened.entity().inventory();
         int folder = storage.createFolder(0, "目标");
         storage.insert(new ItemStack(Items.IRON_INGOT, 16), 16, 0);
@@ -512,7 +490,7 @@ public final class StorageSearchTests {
 
     @GameTest(template = "empty")
     public static void exitingSearchRestoresFolderPageAndNormalPageSize(GameTestHelper helper) {
-        Opened opened = terminal(helper);
+        Opened opened = openTerminal(helper);
         var storage = opened.entity().inventory();
         int folder = storage.createFolder(0, "原目录");
         for (int i = 0; i < 7; i++) storage.createFolder(folder, "子目录" + i);
@@ -538,7 +516,7 @@ public final class StorageSearchTests {
 
     @GameTest(template = "empty")
     public static void locatingSearchResultOpensSourcePageAndHighlightsEntry(GameTestHelper helper) {
-        Opened opened = terminal(helper);
+        Opened opened = openTerminal(helper);
         var storage = opened.entity().inventory();
         int folder = storage.createFolder(0, "来源目录");
         for (int i = 0; i < 7; i++) storage.createFolder(folder, "子目录" + i);
@@ -557,7 +535,7 @@ public final class StorageSearchTests {
 
     @GameTest(template = "empty")
     public static void closedMenuAndReusedContainerIdRejectPreviousSearchRequests(GameTestHelper helper) {
-        Opened opened = terminal(helper);
+        Opened opened = openTerminal(helper);
         var storage = opened.entity().inventory();
         storage.insert(new ItemStack(Items.IRON_INGOT, 16), 16, 0);
         int id = storage.entries().get(0).id();
@@ -565,8 +543,7 @@ public final class StorageSearchTests {
         start(old, false, 6, id);
         var delayed = search(old, SearchAction.TAKE, 0, 6, id, 8);
         old.removed(opened.player());
-        var reopened = new StorageMenu(1, opened.player().getInventory(), opened.entity().getBlockPos(), opened.entity());
-        opened.player().containerMenu = reopened;
+        var reopened = open(opened.player(), opened.entity());
         start(reopened, false, 6, id);
         old.handleSearch(delayed); reopened.handleSearch(delayed);
         helper.assertTrue(storage.total() == 16 && opened.player().getInventory().isEmpty() && !old.stillValid(opened.player()), "Closed/reopened menu revived a previous search request");
@@ -583,7 +560,7 @@ public final class StorageSearchTests {
         nas.install(0, new ItemStack(ModContent.DISK_64K.get()));
         nas.install(1, new ItemStack(ModContent.DISK_64K.get()));
         for (int bay = 0; bay < 2; bay++) nas.volume(bay).inventory().insert(new ItemStack(Items.IRON_INGOT, 16), 16, 0);
-        Opened opened = terminal(helper);
+        Opened opened = openTerminal(helper);
         StorageMenu menu = opened.menu();
         menu.handle(normal(menu, Action.SELECT_VOLUME, 0, 0, 0, DiskItem.id(nas.disk(0)).toString()));
         start(menu, false, 6, 1);

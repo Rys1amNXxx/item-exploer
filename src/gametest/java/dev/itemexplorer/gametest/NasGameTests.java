@@ -1,6 +1,5 @@
 package dev.itemexplorer.gametest;
 
-import com.mojang.authlib.GameProfile;
 import dev.itemexplorer.ItemExplorer;
 import dev.itemexplorer.ModContent;
 import dev.itemexplorer.block.NasBlockEntity;
@@ -32,7 +31,6 @@ import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.storage.DimensionDataStorage;
 import net.minecraft.world.level.storage.LevelResource;
 import net.minecraft.world.phys.AABB;
-import net.minecraftforge.common.util.FakePlayer;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.level.ChunkEvent;
 import net.minecraftforge.gametest.GameTestHolder;
@@ -43,6 +41,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
+import static dev.itemexplorer.gametest.GameTestSupport.*;
+
 @GameTestHolder(ItemExplorer.MOD_ID)
 @PrefixGameTestTemplate(false)
 public final class NasGameTests {
@@ -50,29 +50,8 @@ public final class NasGameTests {
         BlockPos p = new BlockPos(x, 2, z); h.setBlock(p, ModContent.NAS_BLOCK.get());
         return (NasBlockEntity) h.getLevel().getBlockEntity(h.absolutePos(p));
     }
-    private static ServerPlayer player(GameTestHelper h, BlockPos pos) {
-        ServerPlayer player = new FakePlayer(h.getLevel(), new GameProfile(UUID.randomUUID(), "nas-test")) {
-            @Override public boolean hasDisconnected() { return false; }
-        };
-        player.setPos(pos.getX() + .5, pos.getY() + 1, pos.getZ() + .5); return player;
-    }
-    private static StorageMenu terminal(GameTestHelper h) {
-        BlockPos p = new BlockPos(2, 2, 2); h.setBlock(p, ModContent.STORAGE_BLOCK.get());
-        var entity = (StorageBlockEntity) h.getLevel().getBlockEntity(h.absolutePos(p));
-        ServerPlayer player = player(h, entity.getBlockPos());
-        StorageMenu menu = new StorageMenu(1, player.getInventory(), entity.getBlockPos(), entity); player.containerMenu = menu; return menu;
-    }
-    private static StorageNetwork.Request request(StorageMenu menu, Action action, int id, long amount, String name) {
-        CompoundTag view = menu.snapshot();
-        return new StorageNetwork.Request(menu.containerId, view.getLong("Revision"), action, id, 0, amount, name, view.getLong("Session"));
-    }
     private static void select(StorageMenu menu, ItemStack disk) {
         menu.handle(request(menu, Action.SELECT_VOLUME, 0, 0, DiskItem.id(disk).toString()));
-    }
-    private static void rejected(GameTestHelper h, Runnable call, String reason) {
-        boolean rejected = false;
-        try { call.run(); } catch (IllegalArgumentException e) { rejected = e.getMessage().equals(reason); }
-        h.assertTrue(rejected, "Expected rejection: " + reason);
     }
 
     @GameTest(template = "empty")
@@ -176,7 +155,7 @@ public final class NasGameTests {
     @GameTest(template = "empty")
     public static void terminalRootsSelectionAndRename(GameTestHelper h) {
         NasBlockEntity nas = nas(h, 2, 3); nas.install(0, new ItemStack(ModContent.DISK_64K.get())); nas.install(1, new ItemStack(ModContent.DISK_256K.get()));
-        StorageMenu menu = terminal(h);
+        StorageMenu menu = open(h, terminal(h));
         h.assertTrue(menu.snapshot().getList("Volumes", Tag.TAG_COMPOUND).size() == 3 && menu.snapshot().getLong("Capacity") == 4096, "Terminal roots/local capacity incorrect");
         select(menu, nas.disk(1)); menu.handle(request(menu, Action.RENAME_DISK, 0, 0, "随意命名"));
         menu.setCarried(new ItemStack(Items.DIAMOND, 16)); menu.handle(request(menu, Action.DEPOSIT_CURSOR, 0, 0, ""));
@@ -189,7 +168,7 @@ public final class NasGameTests {
     public static void switchAndReinsertRejectOldRequestsEvenAtSameRevision(GameTestHelper h) {
         NasBlockEntity nas = nas(h, 2, 3); nas.install(0, new ItemStack(ModContent.DISK_64K.get())); nas.install(1, new ItemStack(ModContent.DISK_64K.get()));
         for (int i = 0; i < 2; i++) nas.volume(i).inventory().insert(new ItemStack(Items.IRON_INGOT, 64), 64, 0);
-        StorageMenu menu = terminal(h); select(menu, nas.disk(0));
+        StorageMenu menu = open(h, terminal(h)); select(menu, nas.disk(0));
         var old = request(menu, Action.WITHDRAW, 1, 32, ""); select(menu, nas.disk(1)); menu.handle(old);
         h.assertTrue(nas.volume(0).inventory().total() == 64 && nas.volume(1).inventory().total() == 64, "Same-revision disk switch accepted old request");
         var beforeEject = request(menu, Action.WITHDRAW, 1, 32, ""); ItemStack disk = nas.eject(1); nas.install(1, disk); menu.handle(beforeEject);
@@ -201,14 +180,14 @@ public final class NasGameTests {
     @GameTest(template = "empty")
     public static void contextualShiftDepositAndReopenedMenu(GameTestHelper h) {
         NasBlockEntity nas = nas(h, 2, 3); nas.install(0, new ItemStack(ModContent.DISK_64K.get()));
-        BlockPos p = new BlockPos(2, 2, 2); h.setBlock(p, ModContent.STORAGE_BLOCK.get()); var entity = (StorageBlockEntity) h.getLevel().getBlockEntity(h.absolutePos(p));
-        ServerPlayer player = player(h, entity.getBlockPos()); StorageMenu menu = new StorageMenu(1, player.getInventory(), entity.getBlockPos(), entity); player.containerMenu = menu;
+        var entity = terminal(h);
+        ServerPlayer player = player(h, entity.getBlockPos()); StorageMenu menu = open(player, entity);
         select(menu, nas.disk(0)); player.getInventory().setItem(0, new ItemStack(Items.IRON_INGOT, 64));
         var delayed = request(menu, Action.DEPOSIT_SLOT, 27, 0, "");
         nas.install(0, nas.eject(0)); menu.handle(delayed); h.assertTrue(player.getInventory().getItem(0).getCount() == 64, "Old shift deposit consumed player stack");
         menu.handle(request(menu, Action.DEPOSIT_SLOT, 27, 0, "")); h.assertTrue(nas.volume(0).inventory().total() == 64 && player.getInventory().getItem(0).isEmpty(), "Contextual shift deposit failed");
         var old = request(menu, Action.WITHDRAW, 1, 64, ""); menu.removed(player);
-        StorageMenu reopened = new StorageMenu(1, player.getInventory(), entity.getBlockPos(), entity); player.containerMenu = reopened; select(reopened, nas.disk(0)); reopened.handle(old);
+        StorageMenu reopened = open(player, entity); select(reopened, nas.disk(0)); reopened.handle(old);
         h.assertTrue(nas.volume(0).inventory().total() == 64, "Reused menu ID accepted a previous menu's request"); h.succeed();
     }
 
@@ -291,11 +270,11 @@ public final class NasGameTests {
     public static void twoTerminalsShareDiskRevisionAndConserveItems(GameTestHelper h) {
         NasBlockEntity nas = nas(h, 2, 3); nas.install(0, new ItemStack(ModContent.DISK_64K.get()));
         nas.volume(0).inventory().insert(new ItemStack(Items.IRON_INGOT, 64), 64, 0);
-        StorageMenu first = terminal(h); select(first, nas.disk(0));
+        StorageMenu first = open(h, terminal(h)); select(first, nas.disk(0));
         BlockPos p = new BlockPos(2, 2, 4);
         h.setBlock(p, ModContent.STORAGE_BLOCK.get().defaultBlockState().setValue(net.minecraft.world.level.block.HorizontalDirectionalBlock.FACING, net.minecraft.core.Direction.SOUTH));
         var entity = (StorageBlockEntity) h.getLevel().getBlockEntity(h.absolutePos(p));
-        ServerPlayer player = player(h, entity.getBlockPos()); StorageMenu second = new StorageMenu(1, player.getInventory(), entity.getBlockPos(), entity); player.containerMenu = second;
+        ServerPlayer player = player(h, entity.getBlockPos()); StorageMenu second = open(player, entity);
         select(second, nas.disk(0)); var delayed = request(second, Action.WITHDRAW, 1, 48, "");
         first.handle(request(first, Action.WITHDRAW, 1, 48, ""));
         h.runAtTickTime(4, () -> {

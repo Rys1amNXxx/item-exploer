@@ -1,6 +1,5 @@
 package dev.itemexplorer.gametest;
 
-import com.mojang.authlib.GameProfile;
 import dev.itemexplorer.ItemExplorer;
 import dev.itemexplorer.ModContent;
 import dev.itemexplorer.block.StorageBlockEntity;
@@ -20,39 +19,20 @@ import net.minecraft.world.item.Items;
 import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.phys.AABB;
-import net.minecraftforge.common.util.FakePlayer;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.level.ChunkEvent;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
-import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
+
+import static dev.itemexplorer.gametest.GameTestSupport.*;
 
 @GameTestHolder(ItemExplorer.MOD_ID)
 @PrefixGameTestTemplate(false)
 public final class StorageInteractionTests {
-    private static StorageBlockEntity terminal(GameTestHelper helper) {
-        BlockPos local = new BlockPos(2, 2, 2);
-        helper.setBlock(local, ModContent.STORAGE_BLOCK.get());
-        return (StorageBlockEntity) helper.getLevel().getBlockEntity(helper.absolutePos(local));
-    }
-
-    private static ServerPlayer player(GameTestHelper helper, BlockPos pos) {
-        ServerPlayer player = new FakePlayer(helper.getLevel(), new GameProfile(UUID.randomUUID(), "p0-test")) {
-            @Override public boolean hasDisconnected() { return false; }
-        };
-        player.setPos(pos.getX() + 0.5, pos.getY() + 1, pos.getZ() + 0.5);
-        return player;
-    }
-
-    private static StorageMenu open(ServerPlayer player, StorageBlockEntity entity) {
-        StorageMenu menu = new StorageMenu(1, player.getInventory(), entity.getBlockPos(), entity);
-        player.containerMenu = menu;
-        return menu;
-    }
-
+    /** Uses the inventory's revision and no session; tests attach one with {@code withSession} when they need it. */
     private static StorageNetwork.Request request(StorageBlockEntity entity, Action action, int id, int target, int amount) {
         return new StorageNetwork.Request(1, entity.inventory().revision(), action, id, target, amount, "");
     }
@@ -61,10 +41,6 @@ public final class StorageInteractionTests {
         var field = StorageMenu.class.getDeclaredField("sentView");
         field.setAccessible(true);
         return ((CompoundTag) field.get(menu)).getString("Message");
-    }
-
-    private static int iron(ServerPlayer player) {
-        return player.getInventory().items.stream().filter(s -> s.is(Items.IRON_INGOT)).mapToInt(ItemStack::getCount).sum();
     }
 
     @GameTest(template = "empty", timeoutTicks = 100)
@@ -77,13 +53,13 @@ public final class StorageInteractionTests {
         StorageMenu a = open(first, entity), b = open(second, entity);
         var delayed = request(entity, Action.WITHDRAW, id, 0, 48);
         a.handle(delayed.withSession(a.session()));
-        helper.assertTrue(inventory.total() == 16 && iron(first) == 48, "First withdrawal failed");
+        helper.assertTrue(inventory.total() == 16 && carried(first, Items.IRON_INGOT) == 48, "First withdrawal failed");
         helper.runAtTickTime(10, () -> {
             b.handle(delayed.withSession(b.session()));
             a.handle(delayed.withSession(a.session())); // Retransmitted application action must also be rejected.
-            helper.assertTrue(inventory.total() == 16 && iron(second) == 0 && iron(first) == 48, "Delayed/repeated request consumed inventory");
+            helper.assertTrue(inventory.total() == 16 && carried(second, Items.IRON_INGOT) == 0 && carried(first, Items.IRON_INGOT) == 48, "Delayed/repeated request consumed inventory");
             b.handle(request(entity, Action.WITHDRAW, id, 0, 48).withSession(b.session()));
-            helper.assertTrue(inventory.total() == 0 && iron(first) + iron(second) == 64, "Concurrent consumers did not conserve total quantity");
+            helper.assertTrue(inventory.total() == 0 && carried(first, Items.IRON_INGOT) + carried(second, Items.IRON_INGOT) == 64, "Concurrent consumers did not conserve total quantity");
             helper.succeed();
         });
     }
@@ -112,12 +88,12 @@ public final class StorageInteractionTests {
         var late = request(entity, Action.WITHDRAW, entity.inventory().entries().get(0).id(), 0, 64);
         oldMenu.removed(player);
         oldMenu.removed(player);
-        helper.assertTrue(oldMenu.getCarried().isEmpty() && iron(player) == 17, "Close lost or duplicated cursor contents");
+        helper.assertTrue(oldMenu.getCarried().isEmpty() && carried(player, Items.IRON_INGOT) == 17, "Close lost or duplicated cursor contents");
         open(player, entity);
         helper.runAtTickTime(8, () -> {
             oldMenu.handle(late);
             oldMenu.quickMoveStack(player, 27);
-            helper.assertTrue(entity.inventory().total() == 64 && iron(player) == 17 && !oldMenu.stillValid(player), "Closed menu continued transferring items");
+            helper.assertTrue(entity.inventory().total() == 64 && carried(player, Items.IRON_INGOT) == 17 && !oldMenu.stillValid(player), "Closed menu continued transferring items");
             helper.succeed();
         });
     }
@@ -126,11 +102,7 @@ public final class StorageInteractionTests {
     public static void fullInventoryCloseAndDisconnectDropCursorOnce(GameTestHelper helper) {
         StorageBlockEntity entity = terminal(helper);
         for (boolean disconnected : new boolean[]{false, true}) {
-            ServerPlayer player = new FakePlayer(helper.getLevel(), new GameProfile(UUID.randomUUID(), "close-test")) {
-                @Override public boolean hasDisconnected() { return disconnected; }
-            };
-            BlockPos pos = entity.getBlockPos();
-            player.setPos(pos.getX() + 0.5, pos.getY() + 1, pos.getZ() + 0.5);
+            ServerPlayer player = standOn(player(helper, disconnected), entity.getBlockPos());
             for (int i = 0; i < 36; i++) player.getInventory().setItem(i, new ItemStack(Items.STONE, 64));
             StorageMenu menu = open(player, entity);
             menu.setCarried(new ItemStack(Items.IRON_INGOT, 17));
@@ -151,10 +123,10 @@ public final class StorageInteractionTests {
         ServerPlayer player = player(helper, entity.getBlockPos());
         StorageMenu menu = open(player, entity);
         for (int i = 0; i < 11; i++) menu.handle(request(entity, Action.WITHDRAW, id, 0, 1).withSession(menu.session()));
-        helper.assertTrue(iron(player) == 10 && entity.inventory().total() == 22, "Per-tick limit did not reject the eleventh request");
+        helper.assertTrue(carried(player, Items.IRON_INGOT) == 10 && entity.inventory().total() == 22, "Per-tick limit did not reject the eleventh request");
         helper.runAtTickTime(2, () -> {
             menu.handle(request(entity, Action.WITHDRAW, id, 0, 1).withSession(menu.session()));
-            helper.assertTrue(iron(player) == 11 && entity.inventory().total() == 21, "Request budget failed to reset");
+            helper.assertTrue(carried(player, Items.IRON_INGOT) == 11 && entity.inventory().total() == 21, "Request budget failed to reset");
             helper.succeed();
         });
     }
@@ -172,11 +144,11 @@ public final class StorageInteractionTests {
         player.setGameMode(GameType.SURVIVAL);
         player.containerMenu = player.inventoryMenu;
         menu.handle(request(entity, Action.WITHDRAW, id, 0, 64).withSession(menu.session()));
-        helper.assertTrue(entity.inventory().total() == 64 && iron(player) == 0, "Invalid session extracted items");
+        helper.assertTrue(entity.inventory().total() == 64 && carried(player, Items.IRON_INGOT) == 0, "Invalid session extracted items");
         player.containerMenu = menu;
         helper.setBlock(new BlockPos(2, 2, 2), Blocks.AIR);
         menu.handle(request(entity, Action.WITHDRAW, id, 0, 64).withSession(menu.session()));
-        helper.assertTrue(!menu.stillValid(player) && iron(player) == 0 && entity.inventory().total() == 0, "Removed block accepted requests");
+        helper.assertTrue(!menu.stillValid(player) && carried(player, Items.IRON_INGOT) == 0 && entity.inventory().total() == 0, "Removed block accepted requests");
         helper.succeed();
     }
 
@@ -192,7 +164,7 @@ public final class StorageInteractionTests {
         menu.handle(request(entity, Action.DEPOSIT_SLOT, 27, 0, 0).withSession(menu.session()));
         menu.handle(request(entity, Action.DEPOSIT_CURSOR, 0, 0, 0).withSession(menu.session()));
         menu.handle(new StorageNetwork.Request(1, entity.inventory().revision(), Action.CREATE, 0, 0, 0, "Blocked").withSession(menu.session()));
-        helper.assertTrue(iron(player) == 64 && menu.getCarried().getCount() == 5 && raw.equals(entity.inventory().save()), "Locked menu consumed player items or changed protected data");
+        helper.assertTrue(carried(player, Items.IRON_INGOT) == 64 && menu.getCarried().getCount() == 5 && raw.equals(entity.inventory().save()), "Locked menu consumed player items or changed protected data");
         helper.succeed();
     }
 
@@ -236,7 +208,7 @@ public final class StorageInteractionTests {
         menu.handle(request(entity, Action.DEPOSIT_CURSOR, 0, 0, 0).withSession(menu.session()));
         helper.assertTrue("full".equals(sentMessage(menu)), "A nonempty cursor lost the full-storage warning");
         helper.assertTrue(entity.inventory().total() == capacity && entity.inventory().revision() == revision
-                && iron(player) == 17 && menu.getCarried().is(Items.DIAMOND) && menu.getCarried().getCount() == 5,
+                && carried(player, Items.IRON_INGOT) == 17 && menu.getCarried().is(Items.DIAMOND) && menu.getCarried().getCount() == 5,
                 "Rejected deposits changed player items or full storage");
         helper.succeed();
     }

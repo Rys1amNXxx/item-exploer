@@ -1,6 +1,5 @@
 package dev.itemexplorer.gametest;
 
-import com.mojang.authlib.GameProfile;
 import dev.itemexplorer.ItemExplorer;
 import dev.itemexplorer.ModContent;
 import dev.itemexplorer.block.StorageBlockEntity;
@@ -14,11 +13,10 @@ import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
-import net.minecraftforge.common.util.FakePlayer;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
-import java.util.UUID;
+import static dev.itemexplorer.gametest.GameTestSupport.*;
 
 @GameTestHolder(ItemExplorer.MOD_ID)
 @PrefixGameTestTemplate(false)
@@ -30,11 +28,7 @@ public final class ProgramFileCopyTests {
         var terminal = (StorageBlockEntity) h.getLevel().getBlockEntity(position);
         terminal.inventory().insert(new ItemStack(Items.STONE, 64), 64, 0);
         int source = terminal.programs().create(0, name);
-        var player = new FakePlayer(h.getLevel(), new GameProfile(UUID.randomUUID(), "program-copy")) {
-            @Override public boolean hasDisconnected() { return false; }
-        };
-        player.setPos(position.getX() + .5, position.getY() + .5, position.getZ() + .5);
-        var menu = new StorageMenu(1, player.getInventory(), position, terminal); player.containerMenu = menu;
+        var menu = open(h, terminal);
         return new Fixture(terminal, menu, source);
     }
     private static StorageNetwork.FileRequest copyRequest(Fixture f, int id) {

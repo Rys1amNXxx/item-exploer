@@ -1,8 +1,6 @@
 package dev.itemexplorer.gametest;
 
-import com.mojang.authlib.GameProfile;
 import dev.itemexplorer.ItemExplorer;
-import dev.itemexplorer.ModContent;
 import dev.itemexplorer.block.StorageBlockEntity;
 import dev.itemexplorer.menu.StorageLayout;
 import dev.itemexplorer.menu.StorageMenu;
@@ -18,39 +16,14 @@ import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.phys.AABB;
-import net.minecraftforge.common.util.FakePlayer;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
-import java.util.UUID;
+import static dev.itemexplorer.gametest.GameTestSupport.*;
 
 @GameTestHolder(ItemExplorer.MOD_ID)
 @PrefixGameTestTemplate(false)
 public final class TerminalCraftingTests {
-    private static StorageBlockEntity terminal(GameTestHelper helper) {
-        BlockPos local = new BlockPos(2, 2, 2);
-        helper.setBlock(local, ModContent.STORAGE_BLOCK.get());
-        return (StorageBlockEntity) helper.getLevel().getBlockEntity(helper.absolutePos(local));
-    }
-
-    private static ServerPlayer player(GameTestHelper helper, BlockPos pos) {
-        return player(helper, pos, false);
-    }
-
-    private static ServerPlayer player(GameTestHelper helper, BlockPos pos, boolean disconnected) {
-        ServerPlayer player = new FakePlayer(helper.getLevel(), new GameProfile(UUID.randomUUID(), "craft-test")) {
-            @Override public boolean hasDisconnected() { return disconnected; }
-        };
-        player.setPos(pos.getX() + 0.5, pos.getY() + 1, pos.getZ() + 0.5);
-        return player;
-    }
-
-    private static StorageMenu open(ServerPlayer player, StorageBlockEntity terminal) {
-        StorageMenu menu = new StorageMenu(1, player.getInventory(), terminal.getBlockPos(), terminal);
-        player.containerMenu = menu;
-        return menu;
-    }
-
     private static void ingredient(StorageMenu menu, int index, Item item, int count) {
         menu.getSlot(StorageMenu.CRAFT_GRID_START + index).set(new ItemStack(item, count));
     }
@@ -239,7 +212,7 @@ public final class TerminalCraftingTests {
     public static void fullInventoryAndDisconnectDropInputsExactlyOnce(GameTestHelper helper) {
         StorageBlockEntity terminal = terminal(helper);
         for (boolean disconnected : new boolean[]{false, true}) {
-            ServerPlayer player = player(helper, terminal.getBlockPos(), disconnected);
+            ServerPlayer player = standOn(player(helper, disconnected), terminal.getBlockPos());
             StorageMenu menu = open(player, terminal);
             if (!disconnected) fillInventory(player);
             ironBlockRecipe(menu, 1);

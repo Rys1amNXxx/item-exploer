@@ -1,13 +1,10 @@
 package dev.itemexplorer.gametest;
 
-import com.mojang.authlib.GameProfile;
 import dev.itemexplorer.ItemExplorer;
 import dev.itemexplorer.ModContent;
 import dev.itemexplorer.block.NasBlockEntity;
-import dev.itemexplorer.block.StorageBlockEntity;
 import dev.itemexplorer.disk.DiskItem;
 import dev.itemexplorer.disk.DiskTier;
-import dev.itemexplorer.menu.StorageMenu;
 import dev.itemexplorer.network.StorageNetwork;
 import dev.itemexplorer.network.StorageNetwork.Action;
 import dev.itemexplorer.storage.StorageInventory;
@@ -20,19 +17,18 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.chat.Component;
-import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.enchantment.Enchantments;
 import net.minecraft.world.level.block.HorizontalDirectionalBlock;
-import net.minecraftforge.common.util.FakePlayer;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
+
+import static dev.itemexplorer.gametest.GameTestSupport.*;
 
 @GameTestHolder(ItemExplorer.MOD_ID)
 @PrefixGameTestTemplate(false)
@@ -105,41 +101,13 @@ public final class StorageSortTests {
         h.succeed();
     }
 
-    private static void rejected(GameTestHelper h, Runnable action, String reason) {
-        boolean rejected = false;
-        try { action.run(); } catch (IllegalArgumentException failure) { rejected = reason.equals(failure.getMessage()); }
-        h.assertTrue(rejected, "Expected " + reason);
-    }
-
-    private record Opened(StorageBlockEntity entity, ServerPlayer player, StorageMenu menu) {}
-
-    private static Opened open(GameTestHelper h) {
-        BlockPos local = new BlockPos(2, 2, 2); h.setBlock(local, ModContent.STORAGE_BLOCK.get());
-        var entity = (StorageBlockEntity) h.getLevel().getBlockEntity(h.absolutePos(local));
-        return open(h, entity);
-    }
-
-    private static Opened open(GameTestHelper h, StorageBlockEntity entity) {
-        ServerPlayer player = new FakePlayer(h.getLevel(), new GameProfile(UUID.randomUUID(), "sort-test")) {
-            @Override public boolean hasDisconnected() { return false; }
-        };
-        BlockPos pos = entity.getBlockPos(); player.setPos(pos.getX() + .5, pos.getY() + 1, pos.getZ() + .5);
-        var menu = new StorageMenu(1, player.getInventory(), pos, entity); player.containerMenu = menu;
-        return new Opened(entity, player, menu);
-    }
-
-    private static StorageNetwork.Request request(StorageMenu menu, Action action, int id, long amount, String name) {
-        var view = menu.snapshot();
-        return new StorageNetwork.Request(menu.containerId, view.getLong("Revision"), action, id, 0, amount, name, view.getLong("Session"));
-    }
-
     @GameTest(template = "empty")
     public static void sortRequestsRespectContextAndRefreshOtherViewers(GameTestHelper h) {
-        var opened = open(h); var storage = opened.entity.inventory(); var menu = opened.menu;
+        var opened = openTerminal(h); var storage = opened.entity().inventory(); var menu = opened.menu();
         int folder = storage.createFolder(0, "Other");
         for (var item : List.of(Items.STONE, Items.IRON_INGOT, Items.GOLD_INGOT, Items.DIAMOND, Items.COAL, Items.APPLE))
             storage.insert(new ItemStack(item, 7), 7, 0);
-        var viewer = open(h, opened.entity).menu;
+        var viewer = openTerminal(h, opened.entity()).menu();
         var original = storage.save();
         var valid = request(menu, Action.SORT, 0, 0, "");
         FriendlyByteBuf buffer = new FriendlyByteBuf(Unpooled.buffer());
@@ -165,10 +133,10 @@ public final class StorageSortTests {
 
     @GameTest(template = "empty")
     public static void sortingMountedDiskLeavesLocalStorageAndSearchUntouched(GameTestHelper h) {
-        var opened = open(h); var menu = opened.menu; var local = opened.entity.inventory();
+        var opened = openTerminal(h); var menu = opened.menu(); var local = opened.entity().inventory();
         local.insert(new ItemStack(Items.STONE, 5), 5, 0); local.insert(new ItemStack(Items.APPLE, 3), 3, 0);
         var localBefore = local.save();
-        BlockPos nasPos = opened.entity.getBlockPos().relative(opened.entity.getBlockState().getValue(HorizontalDirectionalBlock.FACING).getOpposite());
+        BlockPos nasPos = opened.entity().getBlockPos().relative(opened.entity().getBlockState().getValue(HorizontalDirectionalBlock.FACING).getOpposite());
         h.getLevel().setBlockAndUpdate(nasPos, ModContent.NAS_BLOCK.get().defaultBlockState());
         var nas = (NasBlockEntity) h.getLevel().getBlockEntity(nasPos); nas.install(0, new ItemStack(ModContent.DISK_64K.get()));
         var disk = nas.volume(0).inventory();

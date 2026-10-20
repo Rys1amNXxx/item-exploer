@@ -15,22 +15,14 @@ import net.minecraft.world.item.Items;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
-import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+
+import static dev.itemexplorer.gametest.GameTestSupport.*;
 
 @GameTestHolder(ItemExplorer.MOD_ID)
 @PrefixGameTestTemplate(false)
 public final class AtomicStorageTransferTests {
-    private record Snapshot(Tag data, long total, long revision, long search, long transfers,
-                            List<CompoundTag> catalog) {
-        static Snapshot of(StorageInventory inventory) {
-            return new Snapshot(inventory.save(), inventory.total(), inventory.revision(),
-                    inventory.searchRevision(), inventory.transferRevision(), inventory.searchCatalog());
-        }
-    }
-
-    private static StorageInventory storage() { return new StorageInventory(() -> {}); }
     private static int insert(StorageInventory storage, ItemStack stack) {
         storage.insert(stack, stack.getCount(), 0);
         return storage.entries().get(0).id();

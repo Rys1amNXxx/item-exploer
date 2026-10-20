@@ -1,6 +1,5 @@
 package dev.itemexplorer.gametest;
 
-import com.mojang.authlib.GameProfile;
 import dev.itemexplorer.ItemExplorer;
 import dev.itemexplorer.ModContent;
 import dev.itemexplorer.block.StorageBlockEntity;
@@ -24,30 +23,19 @@ import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.phys.AABB;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
-import net.minecraftforge.common.util.FakePlayer;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.util.UUID;
 import java.util.HashSet;
 import java.util.Set;
+
+import static dev.itemexplorer.gametest.GameTestSupport.*;
 
 @GameTestHolder(ItemExplorer.MOD_ID)
 @PrefixGameTestTemplate(false)
 public final class StorageGameTests {
-    private static StorageInventory storage() { return new StorageInventory(() -> {}); }
-
-    private static void rejects(GameTestHelper helper, String expected, Runnable action) {
-        try { action.run(); }
-        catch (IllegalArgumentException e) {
-            helper.assertTrue(expected.equals(e.getMessage()), "Expected " + expected + ", got " + e.getMessage());
-            return;
-        }
-        helper.fail("Expected rejection: " + expected);
-    }
-
     @GameTest(template = "empty")
     public static void foldersAndCountsSurviveBlockEntitySerialization(GameTestHelper helper) throws Exception {
         BlockPos pos = new BlockPos(2, 2, 2);
@@ -61,7 +49,7 @@ public final class StorageGameTests {
         int iron = inventory.entries().get(0).id();
         inventory.move(iron, project, 32);
         inventory.renameFolder(project, "城堡二期");
-        rejects(helper, "not_empty", () -> inventory.deleteFolder(project));
+        rejected(helper, () -> inventory.deleteFolder(project), "not_empty");
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         NbtIo.write(original.saveWithFullMetadata(), new DataOutputStream(bytes));
         StorageBlockEntity restored = new StorageBlockEntity(helper.absolutePos(pos), original.getBlockState());
@@ -120,7 +108,7 @@ public final class StorageGameTests {
         }
         int id = storage.entries().get(0).id();
         long revision = storage.revision();
-        rejects(helper, "entry_limit", () -> storage.move(id, target, 1));
+        rejected(helper, () -> storage.move(id, target, 1), "entry_limit");
         helper.assertTrue(storage.total() == 129 && storage.entry(id).count() == 2 && storage.revision() == revision, "Rejected split modified inventory");
         helper.assertTrue(storage.move(id, target, 2) == 2 && storage.entries().size() == 128, "Whole-entry move should work at entry limit");
         helper.succeed();
@@ -130,18 +118,18 @@ public final class StorageGameTests {
     public static void foldersAndItemPayloadsAreBounded(GameTestHelper helper) {
         StorageInventory storage = storage();
         storage.createFolder(0, "Ore");
-        rejects(helper, "duplicate_name", () -> storage.createFolder(0, "ore"));
-        rejects(helper, "invalid_name", () -> storage.createFolder(0, "../outside"));
-        rejects(helper, "root_folder", () -> storage.deleteFolder(0));
-        rejects(helper, "nested_device", () -> storage.insert(ModContent.STORAGE_ITEM.get().getDefaultInstance(), 1, 0));
+        rejected(helper, () -> storage.createFolder(0, "ore"), "duplicate_name");
+        rejected(helper, () -> storage.createFolder(0, "../outside"), "invalid_name");
+        rejected(helper, () -> storage.deleteFolder(0), "root_folder");
+        rejected(helper, () -> storage.insert(ModContent.STORAGE_ITEM.get().getDefaultInstance(), 1, 0), "nested_device");
         ItemStack oversized = new ItemStack(Items.STONE);
         oversized.getOrCreateTag().putByteArray("Payload", new byte[9000]);
-        rejects(helper, "item_too_large", () -> storage.insert(oversized, 1, 0));
+        rejected(helper, () -> storage.insert(oversized, 1, 0), "item_too_large");
         helper.assertTrue(storage.total() == 0, "Rejected item mutated storage");
         int parent = 0;
         for (int i = 0; i < StorageInventory.MAX_DEPTH; i++) parent = storage.createFolder(parent, "Level" + i);
         final int deepest = parent;
-        rejects(helper, "folder_limit", () -> storage.createFolder(deepest, "Too deep"));
+        rejected(helper, () -> storage.createFolder(deepest, "Too deep"), "folder_limit");
         helper.succeed();
     }
 
@@ -247,17 +235,13 @@ public final class StorageGameTests {
 
     @GameTest(template = "empty", timeoutTicks = 200)
     public static void staleAndRemoteMenuActionsCannotExtractItems(GameTestHelper helper) {
-        BlockPos local = new BlockPos(2, 2, 2);
-        helper.setBlock(local, ModContent.STORAGE_BLOCK.get());
-        BlockPos pos = helper.absolutePos(local);
-        StorageBlockEntity entity = (StorageBlockEntity) helper.getLevel().getBlockEntity(pos);
+        StorageBlockEntity entity = terminal(helper);
+        BlockPos pos = entity.getBlockPos();
         StorageInventory storage = entity.inventory();
         storage.insert(new ItemStack(Items.IRON_INGOT, 64), 64, 0);
         int id = storage.entries().get(0).id();
-        ServerPlayer player = new FakePlayer(helper.getLevel(), new GameProfile(UUID.randomUUID(), "storage-test"));
-        player.setPos(pos.getX() + 0.5, pos.getY() + 1, pos.getZ() + 0.5);
-        StorageMenu menu = new StorageMenu(1, player.getInventory(), pos, entity);
-        player.containerMenu = menu;
+        ServerPlayer player = player(helper, pos);
+        StorageMenu menu = open(player, entity);
         long stale = storage.revision();
         storage.createFolder(0, "Other change");
         menu.handle(new StorageNetwork.Request(1, stale, StorageNetwork.Action.WITHDRAW, id, 0, 64, "").withSession(menu.session()));

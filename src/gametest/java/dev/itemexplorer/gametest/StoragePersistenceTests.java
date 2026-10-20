@@ -23,10 +23,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.function.Consumer;
 
+import static dev.itemexplorer.gametest.GameTestSupport.*;
+
 @GameTestHolder(ItemExplorer.MOD_ID)
 @PrefixGameTestTemplate(false)
 public final class StoragePersistenceTests {
-    private static StorageInventory storage() { return new StorageInventory(() -> {}); }
 
     private static CompoundTag fixture() {
         StorageInventory inventory = storage();

@@ -1,6 +1,5 @@
 package dev.itemexplorer.gametest;
 
-import com.mojang.authlib.GameProfile;
 import dev.itemexplorer.ItemExplorer;
 import dev.itemexplorer.ModContent;
 import dev.itemexplorer.block.StorageBlockEntity;
@@ -21,15 +20,15 @@ import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.inventory.ClickType;
-import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Blocks;
-import net.minecraftforge.common.util.FakePlayer;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
 import java.util.UUID;
+
+import static dev.itemexplorer.gametest.GameTestSupport.*;
 
 @GameTestHolder(ItemExplorer.MOD_ID)
 @PrefixGameTestTemplate(false)
@@ -37,18 +36,10 @@ public final class PortableTerminalTests {
     private record Viewer(ServerPlayer player, StorageMenu menu) {}
 
     private static ServerPlayer player(GameTestHelper h, StorageBlockEntity terminal, InteractionHand hand) {
-        ServerPlayer player = new FakePlayer(h.getLevel(), new GameProfile(UUID.randomUUID(), "portable-test")) {
-            @Override public boolean hasDisconnected() { return false; }
-        };
-        near(player, terminal);
+        ServerPlayer player = GameTestSupport.player(h, terminal.getBlockPos());
         player.getInventory().selected = 0;
         player.setItemInHand(hand, new ItemStack(ModContent.PORTABLE_TERMINAL_ITEM.get()));
         return player;
-    }
-
-    private static void near(ServerPlayer player, StorageBlockEntity terminal) {
-        BlockPos pos = terminal.getBlockPos();
-        player.setPos(pos.getX() + .5, pos.getY() + 1, pos.getZ() + .5);
     }
 
     private static void far(ServerPlayer player, StorageBlockEntity terminal) {
@@ -75,24 +66,14 @@ public final class PortableTerminalTests {
         return new Viewer(player, menu);
     }
 
-    private static StorageNetwork.Request request(StorageMenu menu, Action action, int id, long amount, String name) {
-        CompoundTag view = menu.snapshot();
-        return new StorageNetwork.Request(menu.containerId, view.getLong("Revision"), action, id, 0, amount, name, view.getLong("Session"));
-    }
-
     private static PortableRequest policy(StorageMenu menu, PortableAction action, boolean enabled) {
         CompoundTag view = menu.snapshot();
         return new PortableRequest(menu.containerId, view.getLong("Session"), view.getLong("PortableAccessRevision"), action, enabled);
     }
 
-    private static int count(ServerPlayer player, Item item) {
-        return player.getInventory().items.stream().filter(stack -> stack.is(item)).mapToInt(ItemStack::getCount).sum();
-    }
-
     private static StorageMenu physical(ServerPlayer player, StorageBlockEntity terminal, int id) {
-        near(player, terminal);
-        StorageMenu menu = new StorageMenu(id, player.getInventory(), terminal.getBlockPos(), terminal);
-        player.containerMenu = menu;
+        standOn(player, terminal.getBlockPos());
+        StorageMenu menu = GameTestSupport.open(player, terminal, id);
         menu.broadcastChanges();
         return menu;
     }
@@ -110,7 +91,7 @@ public final class PortableTerminalTests {
             h.assertTrue(!PortableAccess.pair(player, InteractionHand.MAIN_HAND, station.first()).isEmpty()
                             && station.first().portableDeviceCount() == 0,
                     "Pairing bypassed the physical proximity requirement");
-            near(player, station.first());
+            standOn(player, station.first().getBlockPos());
             h.assertTrue(PortableAccess.pair(player, InteractionHand.MAIN_HAND, station.first()).isEmpty(), "Local pairing failed");
             var binding = PortableAccess.binding(player.getMainHandItem());
             h.assertTrue(binding != null && station.first().acceptsPortableDevice(binding.device(), binding.grant()),
@@ -140,13 +121,13 @@ public final class PortableTerminalTests {
             h.assertTrue(v.menu.stillValid(v.player) && view.getBoolean("Portable") && view.getBoolean("PortableConnected")
                             && view.getBoolean("Available"), "Long distance portable access was rejected or not identified");
             v.menu.handle(request(v.menu, Action.WITHDRAW, station.first().inventory().entries().get(0).id(), 6, ""));
-            h.assertTrue(count(v.player, Items.IRON_INGOT) == 6 && station.first().inventory().total() == 10,
+            h.assertTrue(carried(v.player, Items.IRON_INGOT) == 6 && station.first().inventory().total() == 10,
                     "A distant local withdrawal lost or duplicated items");
             v.menu.handle(request(v.menu, Action.SELECT_VOLUME, 0, 0, nas.volume(0).id().toString()));
             v.menu.handle(request(v.menu, Action.WITHDRAW, nas.volume(0).inventory().entries().get(0).id(), 3, ""));
             v.menu.setCarried(new ItemStack(Items.GOLD_INGOT, 4));
             v.menu.handle(request(v.menu, Action.DEPOSIT_CURSOR, 0, 0, ""));
-            h.assertTrue(count(v.player, Items.DIAMOND) == 3 && nas.volume(0).inventory().total() == 8
+            h.assertTrue(carried(v.player, Items.DIAMOND) == 3 && nas.volume(0).inventory().total() == 8
                             && station.first().inventory().total() == 10 && v.menu.getCarried().isEmpty(),
                     "Distant NAS access changed the wrong drive or lost items");
             v.menu.handle(request(v.menu, Action.SELECT_VOLUME, 0, 0, ""));
@@ -174,10 +155,10 @@ public final class PortableTerminalTests {
             v.menu.clicked(0, 0, ClickType.SWAP, v.player);
             v.menu.handle(request(v.menu, Action.DEPOSIT_SLOT, 27, 0, ""));
             h.assertTrue(v.player.getMainHandItem() == device && v.menu.getCarried().isEmpty()
-                            && station.first().inventory().total() == 0 && count(v.player, Items.DIAMOND) == 2,
+                            && station.first().inventory().total() == 0 && carried(v.player, Items.DIAMOND) == 2,
                     "A vanilla click or forged deposit moved the active handheld device");
             v.menu.handle(request(v.menu, Action.DEPOSIT_SLOT, 0, 0, ""));
-            h.assertTrue(station.first().inventory().total() == 2 && count(v.player, Items.DIAMOND) == 0,
+            h.assertTrue(station.first().inventory().total() == 2 && carried(v.player, Items.DIAMOND) == 0,
                     "Protecting the device also blocked ordinary inventory deposits");
             v.player.getInventory().setItem(0, ItemStack.EMPTY);
             v.player.getInventory().setItem(1, device);
@@ -198,7 +179,7 @@ public final class PortableTerminalTests {
             ItemStack device = v.player.getOffhandItem();
             v.player.getInventory().setItem(9, new ItemStack(Items.DIAMOND));
             v.menu.clicked(0, 40, ClickType.SWAP, v.player);
-            h.assertTrue(v.player.getOffhandItem() == device && count(v.player, Items.DIAMOND) == 1
+            h.assertTrue(v.player.getOffhandItem() == device && carried(v.player, Items.DIAMOND) == 1
                             && v.menu.stillValid(v.player), "The offhand swap key removed the active handheld device");
             v.player.setItemInHand(InteractionHand.OFF_HAND, ItemStack.EMPTY);
             h.assertTrue(!v.menu.stillValid(v.player), "Removing the offhand device kept access authorized");
@@ -252,7 +233,7 @@ public final class PortableTerminalTests {
             station.first().setPortableEnabled(true);
             h.assertTrue(!PortableAccess.openSession(v.player, InteractionHand.MAIN_HAND).status().isEmpty(),
                     "Toggling portable access revived a revoked grant");
-            near(v.player, station.first());
+            standOn(v.player, station.first().getBlockPos());
             h.assertTrue(PortableAccess.pair(v.player, InteractionHand.MAIN_HAND, station.first()).isEmpty(),
                     "A revoked device could not explicitly pair again locally");
             var newBinding = PortableAccess.binding(v.player.getMainHandItem());
@@ -375,12 +356,12 @@ public final class PortableTerminalTests {
             v.menu.handleSearch(new StorageNetwork.SearchRequest(v.menu.containerId, view.getLong("Session"), view.getLong("QuerySeq"),
                     view.getLong("SearchRevision"), view.getLong("ResultViewSeq"), SearchAction.TAKE, false,
                     0, 6, entry, 2, view.getLong("Revision"), new int[0]));
-            h.assertTrue(count(v.player, Items.CORNFLOWER) == 2 && station.first().inventory().total() == 0,
+            h.assertTrue(carried(v.player, Items.CORNFLOWER) == 2 && station.first().inventory().total() == 0,
                     "Portable search withdrawal lost or duplicated ingredients");
             v.menu.clicked(28, 0, ClickType.PICKUP, v.player);
             v.menu.clicked(StorageMenu.CRAFT_GRID_END - 1, 0, ClickType.PICKUP, v.player);
             v.menu.clicked(StorageMenu.CRAFT_RESULT_SLOT, 0, ClickType.QUICK_MOVE, v.player);
-            h.assertTrue(count(v.player, Items.BLUE_DYE) == 2 && count(v.player, Items.CORNFLOWER) == 0
+            h.assertTrue(carried(v.player, Items.BLUE_DYE) == 2 && carried(v.player, Items.CORNFLOWER) == 0
                             && v.player.getMainHandItem().is(ModContent.PORTABLE_TERMINAL_ITEM.get())
                             && station.first().inventory().total() == 0,
                     "Portable manual crafting lost ingredients, stored outputs, or consumed the device");
@@ -430,7 +411,7 @@ public final class PortableTerminalTests {
             h.assertTrue(!menu.stillValid(player), "Portable support removed physical terminal distance checks");
             menu.handlePortable(disable);
             h.assertTrue(station.first().portableEnabled(), "An out-of-range physical menu changed the policy");
-            near(player, station.first());
+            standOn(player, station.first().getBlockPos());
             menu.handlePortable(disable);
             h.assertTrue(!station.first().portableEnabled(), "A fresh nearby policy request could not close portable access");
             h.succeed();

@@ -1,6 +1,5 @@
 package dev.itemexplorer.gametest;
 
-import com.mojang.authlib.GameProfile;
 import dev.itemexplorer.ItemExplorer;
 import dev.itemexplorer.ModContent;
 import dev.itemexplorer.block.NasBlockEntity;
@@ -12,15 +11,15 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.nbt.CompoundTag;
-import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Blocks;
-import net.minecraftforge.common.util.FakePlayer;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
 import java.util.UUID;
+
+import static dev.itemexplorer.gametest.GameTestSupport.*;
 
 @GameTestHolder(ItemExplorer.MOD_ID)
 @PrefixGameTestTemplate(false)
@@ -41,29 +40,12 @@ public final class DefaultVolumeTests {
                 nas, other, h.absolutePos(new BlockPos(1, 1, 2)));
     }
 
-    private static StorageMenu open(GameTestHelper h, StorageBlockEntity terminal) {
-        ServerPlayer player = new FakePlayer(h.getLevel(), new GameProfile(UUID.randomUUID(), "default-drive")) {
-            @Override public boolean hasDisconnected() { return false; }
-        };
-        BlockPos pos = terminal.getBlockPos();
-        player.setPos(pos.getX() + .5, pos.getY() + 1, pos.getZ() + .5);
-        var menu = new StorageMenu(1, player.getInventory(), pos, terminal);
-        player.containerMenu = menu;
-        return menu;
-    }
-
-    private static StorageNetwork.Request request(StorageMenu menu, Action action, int id, String name) {
-        var view = menu.snapshot();
-        return new StorageNetwork.Request(menu.containerId, view.getLong("Revision"), action, id, 0, 0,
-                name, view.getLong("Session"));
-    }
-
     private static void select(StorageMenu menu, String volume) {
-        menu.handle(request(menu, Action.SELECT_VOLUME, 0, volume));
+        menu.handle(request(menu, Action.SELECT_VOLUME, 0, 0, volume));
     }
 
     private static void setDefault(StorageMenu menu) {
-        menu.handle(request(menu, Action.SET_DEFAULT_VOLUME, 0, menu.snapshot().getString("Volume")));
+        menu.handle(request(menu, Action.SET_DEFAULT_VOLUME, 0, 0, menu.snapshot().getString("Volume")));
     }
 
     private static String configure(GameTestHelper h, Scene s) {
@@ -82,7 +64,7 @@ public final class DefaultVolumeTests {
         String id = s.nas.volume(0).id().toString();
         int folder = s.nas.volume(0).inventory().createFolder(0, "Materials");
         select(menu, id);
-        menu.handle(request(menu, Action.OPEN, folder, ""));
+        menu.handle(request(menu, Action.OPEN, folder, 0, ""));
         setDefault(menu);
         h.assertTrue(menu.currentFolder() == folder, "Setting default changed the current location");
         CompoundTag saved = s.terminal.saveWithFullMetadata();
@@ -91,7 +73,7 @@ public final class DefaultVolumeTests {
         h.assertTrue(reopened.snapshot().getString("Volume").equals(id) && reopened.currentFolder() == 0
                 && reopened.snapshot().getString("DefaultVolume").equals(id), "Saved default did not reopen at the drive root");
         reopened.setCarried(new ItemStack(Items.IRON_INGOT, 7));
-        reopened.handle(request(reopened, Action.DEPOSIT_CURSOR, 0, ""));
+        reopened.handle(request(reopened, Action.DEPOSIT_CURSOR, 0, 0, ""));
         h.assertTrue(s.nas.volume(0).inventory().total() == 7 && s.terminal.inventory().total() == 0
                 && reopened.getCarried().isEmpty(), "Opening default drive deposited into the wrong storage");
         select(reopened, ""); setDefault(reopened);
@@ -120,7 +102,7 @@ public final class DefaultVolumeTests {
     public static void ejectionAndReplacementKeepPreferenceAndMovingTheSameDiskRestoresIt(GameTestHelper h) {
         Scene s = scene(h); String id = configure(h, s);
         StorageMenu active = open(h, s.terminal);
-        var pending = request(active, Action.DEPOSIT_CURSOR, 0, "");
+        var pending = request(active, Action.DEPOSIT_CURSOR, 0, 0, "");
         active.setCarried(new ItemStack(Items.DIAMOND, 3));
         ItemStack disk = s.nas.eject(0);
         s.nas.install(0, new ItemStack(ModContent.DISK_64K.get()));
@@ -159,11 +141,11 @@ public final class DefaultVolumeTests {
     public static void staleWrongDriveSearchAndOfflineRequestsCannotChangeDefault(GameTestHelper h) {
         Scene s = scene(h); String id = s.nas.volume(0).id().toString();
         StorageMenu menu = open(h, s.terminal); select(menu, id);
-        var valid = request(menu, Action.SET_DEFAULT_VOLUME, 0, id);
+        var valid = request(menu, Action.SET_DEFAULT_VOLUME, 0, 0, id);
         menu.handle(valid.withSession(valid.session() + 1));
         menu.handle(new StorageNetwork.Request(menu.containerId, valid.revision() - 1,
                 Action.SET_DEFAULT_VOLUME, 0, 0, 0, id, valid.session()));
-        menu.handle(request(menu, Action.SET_DEFAULT_VOLUME, 0, UUID.randomUUID().toString()));
+        menu.handle(request(menu, Action.SET_DEFAULT_VOLUME, 0, 0, UUID.randomUUID().toString()));
         h.assertTrue(s.terminal.defaultVolume().isEmpty(), "Invalid request changed the default");
         var view = menu.snapshot();
         menu.handleSearch(new StorageNetwork.SearchRequest(menu.containerId, view.getLong("Session"), 1, -1, 0,

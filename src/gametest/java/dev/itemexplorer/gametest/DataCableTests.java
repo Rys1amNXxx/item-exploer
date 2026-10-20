@@ -1,6 +1,5 @@
 package dev.itemexplorer.gametest;
 
-import com.mojang.authlib.GameProfile;
 import dev.itemexplorer.ItemExplorer;
 import dev.itemexplorer.ModContent;
 import dev.itemexplorer.block.*;
@@ -24,15 +23,15 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.shapes.CollisionContext;
-import net.minecraftforge.common.util.FakePlayer;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import java.util.function.Function;
+
+import static dev.itemexplorer.gametest.GameTestSupport.*;
 
 @GameTestHolder(ItemExplorer.MOD_ID)
 @PrefixGameTestTemplate(false)
@@ -176,8 +175,7 @@ public final class DataCableTests {
     public static void realBlockConnectionsUpdateAndCableDropsItself(GameTestHelper h) {
         var level = h.getLevel(); BlockPos cable = h.absolutePos(new BlockPos(2,2,2));
         level.setBlockAndUpdate(cable.below(), ModContent.STORAGE_BLOCK.get().defaultBlockState());
-        var player = new FakePlayer(level, new GameProfile(UUID.randomUUID(), "wire-placement"));
-        var context = new BlockPlaceContext(player, InteractionHand.MAIN_HAND, new ItemStack(ModContent.DATA_CABLE_ITEM.get()),
+        var context = new BlockPlaceContext(player(h), InteractionHand.MAIN_HAND, new ItemStack(ModContent.DATA_CABLE_ITEM.get()),
                 new BlockHitResult(Vec3.atCenterOf(cable.below()).add(0, .5, 0), Direction.UP, cable.below(), false));
         BlockState placed = ModContent.DATA_CABLE_BLOCK.get().getStateForPlacement(context);
         h.assertTrue(context.getClickedPos().equals(cable) && placed.getValue(DataCableBlock.connection(Direction.DOWN)),
@@ -200,11 +198,8 @@ public final class DataCableTests {
         f.blocks.forEach((p,s) -> h.getLevel().setBlockAndUpdate(p,s));
         StorageBlockEntity terminal = (StorageBlockEntity) h.getLevel().getBlockEntity(f.terminal);
         terminal.inventory().insert(new ItemStack(Items.IRON_INGOT), 12, 0);
-        var user = new FakePlayer(h.getLevel(), new GameProfile(UUID.randomUUID(), "cable-test"));
-        user.setPos(f.terminal.getX(), f.terminal.getY()+1, f.terminal.getZ());
-        StorageMenu menu = new StorageMenu(1, user.getInventory(), f.terminal, terminal); user.containerMenu = menu;
-        var stationUser = new FakePlayer(h.getLevel(), new GameProfile(UUID.randomUUID(), "station-wire-test"));
-        stationUser.setPos(f.controller.getX(), f.controller.getY()+1, f.controller.getZ());
+        StorageMenu menu = open(h, terminal);
+        var stationUser = player(h, f.controller);
         BaseStationMenu stationMenu = new BaseStationMenu(2, stationUser.getInventory(), (BaseStationBlockEntity) h.getLevel().getBlockEntity(f.controller));
         stationUser.containerMenu = stationMenu;
         h.assertTrue(menu.cable().status() == StationConnection.Status.CONNECTED && stationMenu.cable().status() == StationConnection.Status.CONNECTED, "Menus did not open with connected status");

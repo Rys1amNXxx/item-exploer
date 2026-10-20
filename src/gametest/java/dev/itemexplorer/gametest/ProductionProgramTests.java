@@ -1,6 +1,5 @@
 package dev.itemexplorer.gametest;
 
-import com.mojang.authlib.GameProfile;
 import dev.itemexplorer.ItemExplorer;
 import dev.itemexplorer.ModContent;
 import dev.itemexplorer.block.ProductionPortBlock;
@@ -25,9 +24,8 @@ import net.minecraft.world.level.block.entity.AbstractFurnaceBlockEntity;
 import net.minecraft.world.level.block.entity.FurnaceBlockEntity;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
-import net.minecraftforge.common.util.FakePlayer;
 
-import java.util.UUID;
+import static dev.itemexplorer.gametest.GameTestSupport.*;
 
 @GameTestHolder(ItemExplorer.MOD_ID)
 @PrefixGameTestTemplate(false)
@@ -55,24 +53,6 @@ public final class ProductionProgramTests {
         storage.insert(new ItemStack(fuelItem, fuelCount), fuelCount, fuel);
         port.configure("玻璃生产", input, fuel, output, entry(storage, input, Items.SAND), entry(storage, fuel, fuelItem), runs);
         return new Fixture(terminal, port, furnace, cable, input, fuel, output);
-    }
-
-    private static int entry(StorageInventory storage, int folder, Item item) {
-        return storage.entries().stream().filter(e -> e.folder() == folder && e.stack().is(item))
-                .mapToInt(StorageInventory.Entry::id).findFirst().orElseThrow();
-    }
-
-    private static long count(StorageInventory storage, int folder, Item item) {
-        return storage.entries().stream().filter(e -> e.folder() == folder && e.stack().is(item))
-                .mapToLong(StorageInventory.Entry::count).sum();
-    }
-
-    /** Uses vanilla furnace cooking, with deterministic service passes between its normal ticks. */
-    private static void cook(Fixture f, int ticks) {
-        for (int i = 0; i < ticks; i++) {
-            AbstractFurnaceBlockEntity.serverTick(f.furnace.getLevel(), f.furnace.getBlockPos(), f.furnace.getBlockState(), f.furnace);
-            f.port.workTick();
-        }
     }
 
     private static void status(GameTestHelper h, Fixture f, String expected) {
@@ -104,7 +84,7 @@ public final class ProductionProgramTests {
         try { f.port.start(); } catch (IllegalArgumentException expected) { /* A duplicate request may explicitly reject. */ }
         h.assertTrue(before.equals(f.storage().save()) && ItemStack.matches(input, f.furnace.getItem(0))
                 && ItemStack.matches(fuel, f.furnace.getItem(1)), "Repeated start withdrew a second batch");
-        cook(f, 440);
+        cook(f.furnace, f.port, 440);
         h.assertTrue(count(f.storage(), f.output, Items.GLASS) == 2 && count(f.storage(), f.input, Items.SAND) == 2,
                 "Duplicate start changed the requested production quantity");
         h.succeed();
@@ -113,7 +93,7 @@ public final class ProductionProgramTests {
     @GameTest(template = "empty")
     public static void lavaFuelReturnsItsBucketToTheFuelFolder(GameTestHelper h) {
         Fixture f = fixture(h, 2, Items.LAVA_BUCKET, 1, 2);
-        f.port.start(); f.port.workTick(); cook(f, 440);
+        f.port.start(); f.port.workTick(); cook(f.furnace, f.port, 440);
         h.assertTrue(count(f.storage(), f.output, Items.GLASS) == 2 && count(f.storage(), f.fuel, Items.BUCKET) == 1
                 && count(f.storage(), f.fuel, Items.LAVA_BUCKET) == 0 && f.furnace.isEmpty(), "Lava fuel/container accounting is wrong");
         status(h, f, "production_complete"); h.succeed();
@@ -130,7 +110,7 @@ public final class ProductionProgramTests {
         h.assertTrue(count(f.storage(), other, Items.COAL) == 3 && f.furnace.getItem(1).isEmpty(), "Job used another folder's coal");
         // Restocking produces a new entry ID: the persisted selection must match its item sample.
         f.storage().insert(new ItemStack(Items.COAL), 1, f.fuel);
-        f.port.workTick(); cook(f, 240);
+        f.port.workTick(); cook(f.furnace, f.port, 240);
         h.assertTrue(count(f.storage(), f.output, Items.GLASS) == 1 && count(f.storage(), other, Items.COAL) == 3,
                 "Restocking did not resume safely with a new entry ID"); h.succeed();
     }
@@ -161,7 +141,7 @@ public final class ProductionProgramTests {
                 && !f.storage().entry(entry(f.storage(), f.input, Items.SAND)).stack().save(new CompoundTag()).contains("tag")
                 && !f.storage().entry(entry(f.storage(), f.fuel, Items.COAL)).stack().save(new CompoundTag()).contains("tag"),
                 "Sort did not merge into the original untagged entries without changing quantities");
-        f.port.start(); f.port.workTick(); cook(f, 440);
+        f.port.start(); f.port.workTick(); cook(f.furnace, f.port, 440);
         h.assertTrue(count(f.storage(), f.input, Items.SAND) == 3 && count(f.storage(), f.output, Items.GLASS) == 2
                 && count(f.storage(), f.fuel, Items.COAL) == 2 && f.storage().total() == 7
                 && f.furnace.isEmpty() && f.port.runtimeView().getInt("Completed") == 2,
@@ -181,7 +161,7 @@ public final class ProductionProgramTests {
         h.assertTrue(count(f.storage(), child, Items.SAND) == 3 && count(f.storage(), 0, Items.SAND) == 4
                 && f.furnace.getItem(0).isEmpty(), "Program's exact folder boundary leaked");
         f.storage().insert(new ItemStack(Items.SAND), 1, f.input);
-        f.port.workTick(); cook(f, 240);
+        f.port.workTick(); cook(f.furnace, f.port, 240);
         h.assertTrue(count(f.storage(), f.output, Items.GLASS) == 1, "Restocking raw material did not resume the task"); h.succeed();
     }
 
@@ -191,13 +171,13 @@ public final class ProductionProgramTests {
         f.port.start(); f.port.workTick();
         while (f.storage().total() < f.storage().capacity())
             f.storage().insert(new ItemStack(Items.STONE, 64), 64, 0);
-        cook(f, 240);
+        cook(f.furnace, f.port, 240);
         status(h, f, "production_output_full");
         h.assertTrue(f.furnace.getItem(2).is(Items.GLASS) && f.furnace.getItem(2).getCount() == 1
                 && count(f.storage(), f.input, Items.SAND) == 1 && count(f.storage(), f.output, Items.GLASS) == 0,
                 "Full output lost the product or fed another input");
         f.storage().take(entry(f.storage(), 0, Items.STONE), 8);
-        f.port.workTick(); cook(f, 240);
+        f.port.workTick(); cook(f.furnace, f.port, 240);
         h.assertTrue(count(f.storage(), f.output, Items.GLASS) == 2 && f.furnace.isEmpty(), "Making room did not recover the held product");
         h.succeed();
     }
@@ -207,12 +187,12 @@ public final class ProductionProgramTests {
         Fixture f = fixture(h, 2, Items.COAL, 1, 2);
         f.port.start(); f.port.workTick();
         h.getLevel().setBlockAndUpdate(f.cable, Blocks.AIR.defaultBlockState());
-        cook(f, 240);
+        cook(f.furnace, f.port, 240);
         status(h, f, "production_disconnected");
         h.assertTrue(f.furnace.getItem(2).is(Items.GLASS) && count(f.storage(), f.input, Items.SAND) == 1
                 && count(f.storage(), f.output, Items.GLASS) == 0, "Disconnected program moved items");
         h.getLevel().setBlockAndUpdate(f.cable, ModContent.DATA_CABLE_BLOCK.get().defaultBlockState());
-        f.port.workTick(); cook(f, 240);
+        f.port.workTick(); cook(f.furnace, f.port, 240);
         h.assertTrue(count(f.storage(), f.output, Items.GLASS) == 2 && f.furnace.isEmpty(), "Wire repair lost track of in-flight material");
         h.succeed();
     }
@@ -222,7 +202,7 @@ public final class ProductionProgramTests {
         Fixture f = fixture(h, 2, Items.COAL, 1, 2);
         f.port.start(); f.port.workTick();
         var before = f.storage().save();
-        f.port.cancel(); cook(f, 240);
+        f.port.cancel(); cook(f.furnace, f.port, 240);
         h.assertTrue(before.equals(f.storage().save()) && f.furnace.getItem(2).is(Items.GLASS)
                 && !f.port.view().getBoolean("Active"), "Cancel refunded committed input or recovered an unowned product");
         boolean rejected = false;
@@ -271,12 +251,12 @@ public final class ProductionProgramTests {
     @GameTest(template = "empty")
     public static void normalMidflightSaveLoadDoesNotRepeatInputOrOutput(GameTestHelper h) {
         Fixture f = fixture(h, 3, Items.COAL, 1, 3);
-        f.port.start(); f.port.workTick(); cook(f, 93);
+        f.port.start(); f.port.workTick(); cook(f.furnace, f.port, 93);
         var identity = f.terminal.productionIdentity();
         CompoundTag terminal = f.terminal.saveWithoutMetadata(), furnace = f.furnace.saveWithoutMetadata(), port = f.port.saveWithoutMetadata();
         f.terminal.load(terminal); f.furnace.load(furnace); f.port.load(port);
         h.assertTrue(identity.equals(f.terminal.productionIdentity()), "Normal load changed stable terminal identity");
-        cook(f, 560);
+        cook(f.furnace, f.port, 560);
         h.assertTrue(count(f.storage(), f.output, Items.GLASS) == 3 && count(f.storage(), f.input, Items.SAND) == 0
                 && f.furnace.isEmpty() && f.port.view().getInt("Completed") == 3, "Normal reload duplicated or lost work");
         status(h, f, "production_complete"); h.succeed();
@@ -290,7 +270,7 @@ public final class ProductionProgramTests {
         f.port.workTick();
         var afterFault = f.storage().save();
         f.furnace.setItem(2, ItemStack.EMPTY);
-        cook(f, 440);
+        cook(f.furnace, f.port, 440);
         h.assertTrue(afterFault.equals(f.storage().save()) && f.furnace.getItem(2).is(Items.GLASS)
                 && f.port.view().getInt("Completed") == 0, "Clearing unexpected inventory silently resumed a faulted program");
         f.port.cancel(); h.assertTrue(!f.port.view().getBoolean("Active"), "Faulted job cannot be cancelled"); h.succeed();
@@ -301,7 +281,7 @@ public final class ProductionProgramTests {
         Fixture f = fixture(h, 1, Items.COAL, 1, 1);
         f.port.start(); f.port.workTick();
         f.storage().deleteFolder(f.output);
-        cook(f, 240);
+        cook(f.furnace, f.port, 240);
         h.assertTrue(f.furnace.getItem(2).is(Items.GLASS) && count(f.storage(), 0, Items.GLASS) == 0
                 && f.port.view().getInt("Completed") == 0, "Missing folder caused silent output redirection/loss");
         h.succeed();
@@ -347,7 +327,7 @@ public final class ProductionProgramTests {
             h.assertTrue(rejected, "Invalid configuration was accepted");
         }
         h.assertTrue(f.storage().total() == 3 && f.furnace.isEmpty(), "Configuring a program moved items");
-        f.port.start(); f.port.workTick(); cook(f, 240);
+        f.port.start(); f.port.workTick(); cook(f.furnace, f.port, 240);
         h.assertTrue(count(f.storage(), f.output, Items.GLASS) == 1, "Invalid edits destroyed the previous valid program");
         h.succeed();
     }
@@ -359,7 +339,7 @@ public final class ProductionProgramTests {
         f.storage().insert(new ItemStack(Items.WET_SPONGE), 1, f.input);
         f.port.configure("海绵烘干", f.input, f.fuel, f.output,
                 entry(f.storage(), f.input, Items.WET_SPONGE), entry(f.storage(), f.fuel, Items.LAVA_BUCKET), 1);
-        f.port.start(); f.port.workTick(); cook(f, 240);
+        f.port.start(); f.port.workTick(); cook(f.furnace, f.port, 240);
         h.assertTrue(count(f.storage(), f.output, Items.SPONGE) == 1 && count(f.storage(), f.fuel, Items.WATER_BUCKET) == 1
                 && count(f.storage(), f.fuel, Items.BUCKET) == 0 && f.furnace.isEmpty(),
                 "Collecting the fuel container too soon changed vanilla wet-sponge behavior");
@@ -375,18 +355,10 @@ public final class ProductionProgramTests {
         f.furnace.setItem(1, ItemStack.EMPTY);
         f.port.workTick();
         status(h, f, "production_interference");
-        cook(f, 440);
+        cook(f.furnace, f.port, 440);
         h.assertTrue(count(f.storage(), f.input, Items.SAND) == 1 && count(f.storage(), f.output, Items.GLASS) == 0
                 && f.furnace.getItem(2).is(Items.GLASS), "Missing container did not halt future transfers");
         h.succeed();
-    }
-
-    private static ServerPlayer player(GameTestHelper h, BlockPos pos) {
-        ServerPlayer player = new FakePlayer(h.getLevel(), new GameProfile(UUID.randomUUID(), "production-test")) {
-            @Override public boolean hasDisconnected() { return false; }
-        };
-        player.setPos(pos.getX() + .5, pos.getY() + .5, pos.getZ() + .5);
-        return player;
     }
 
     private static StorageNetwork.ProductionRequest request(ProductionPortMenu menu, CompoundTag view,
@@ -412,7 +384,7 @@ public final class ProductionProgramTests {
         player.setPos(f.terminal.getBlockPos().getX() + 10, f.terminal.getBlockPos().getY(), f.terminal.getBlockPos().getZ());
         menu.handle(fresh);
         h.assertTrue(!f.port.view().getBoolean("Active"), "Out-of-range player started production");
-        player.setPos(f.terminal.getBlockPos().getX() + .5, f.terminal.getBlockPos().getY() + .5, f.terminal.getBlockPos().getZ() + .5);
+        standOn(player, f.terminal.getBlockPos());
         menu.handle(fresh);
         h.assertTrue(f.port.view().getBoolean("Active"), "Current in-range request did not start");
         f.port.workTick();

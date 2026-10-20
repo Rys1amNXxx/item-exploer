@@ -22,6 +22,8 @@ import net.minecraft.world.level.block.entity.AbstractFurnaceBlockEntity;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
+import static dev.itemexplorer.gametest.GameTestSupport.*;
+
 @GameTestHolder(ItemExplorer.MOD_ID)
 @PrefixGameTestTemplate(false)
 public final class TerminalProgramTests {
@@ -47,15 +49,6 @@ public final class TerminalProgramTests {
         return new Fixture(terminal, port, machine, input, fuel, output, file);
     }
     private static void start(Fixture f, int count) { f.port.startProgram(f.terminal, f.file, f.terminal.programs().file(f.file).definition(), count); }
-    private static void cook(Fixture f, int ticks) {
-        for (int i = 0; i < ticks; i++) {
-            AbstractFurnaceBlockEntity.serverTick(f.machine.getLevel(), f.machine.getBlockPos(), f.machine.getBlockState(), f.machine);
-            f.port.workTick();
-        }
-    }
-    private static long count(Fixture f, int folder, Item item) {
-        return f.terminal.inventory().entries().stream().filter(e -> e.folder() == folder && e.stack().is(item)).mapToLong(StorageInventory.Entry::count).sum();
-    }
     @GameTest(template = "empty")
     public static void documentMoveCopyAndReloadKeepDefinitionsOutOfItemCounts(GameTestHelper h) {
         Fixture f = fixture(h, Blocks.FURNACE, Items.SAND); var library = f.terminal.programs();
@@ -69,8 +62,8 @@ public final class TerminalProgramTests {
                 && f.terminal.inventory().total() == total, "Copy created items or copied an active run");
         library.delete(copy); int fresh = library.create(0, "新程序");
         h.assertTrue(fresh > copy, "Deleted document identity was reused");
-        start(f, 2); f.port.workTick(); cook(f, 430);
-        h.assertTrue(count(f, f.output, Items.GLASS) == 2 && library.file(f.file).definition().count() == 1,
+        start(f, 2); f.port.workTick(); cook(f.machine, f.port, 430);
+        h.assertTrue(count(f.terminal.inventory(), f.output, Items.GLASS) == 2 && library.file(f.file).definition().count() == 1,
                 "Runtime quantity mutated the saved definition or moved path broke execution"); h.succeed();
     }
     @GameTest(template = "empty")
@@ -91,7 +84,7 @@ public final class TerminalProgramTests {
     public static void persistedCancellationRetiresAnOldRuntimeWithoutTransfers(GameTestHelper h) {
         Fixture f = fixture(h, Blocks.FURNACE, Items.SAND); start(f, 2); f.port.workTick();
         CompoundTag staleRuntime = f.port.saveWithoutMetadata(); f.terminal.programs().setActive(f.file, false);
-        f.port.load(staleRuntime); var before = f.terminal.inventory().save(); cook(f, 240);
+        f.port.load(staleRuntime); var before = f.terminal.inventory().save(); cook(f.machine, f.port, 240);
         h.assertTrue(!f.port.isRunning() && before.equals(f.terminal.inventory().save()) && f.machine.getItem(2).is(Items.GLASS),
                 "An old runtime resumed a cancelled reservation or lost the real output"); h.succeed();
     }
@@ -110,14 +103,14 @@ public final class TerminalProgramTests {
     }
     @GameTest(template = "empty")
     public static void blastFurnaceRunsItsOwnRecipeAndTime(GameTestHelper h) {
-        Fixture f = fixture(h, Blocks.BLAST_FURNACE, Items.RAW_IRON); start(f, 2); f.port.workTick(); cook(f, 230);
-        h.assertTrue(count(f, f.output, Items.IRON_INGOT) == 2 && !f.port.isRunning() && count(f, f.fuel, Items.COAL) == 1,
+        Fixture f = fixture(h, Blocks.BLAST_FURNACE, Items.RAW_IRON); start(f, 2); f.port.workTick(); cook(f.machine, f.port, 230);
+        h.assertTrue(count(f.terminal.inventory(), f.output, Items.IRON_INGOT) == 2 && !f.port.isRunning() && count(f.terminal.inventory(), f.fuel, Items.COAL) == 1,
                 "Blast furnace did not use its actual cooking ticker and reusable fuel"); h.succeed();
     }
     @GameTest(template = "empty")
     public static void smokerRunsItsOwnRecipeAndTime(GameTestHelper h) {
-        Fixture f = fixture(h, Blocks.SMOKER, Items.BEEF); start(f, 2); f.port.workTick(); cook(f, 230);
-        h.assertTrue(count(f, f.output, Items.COOKED_BEEF) == 2 && !f.port.isRunning() && count(f, f.fuel, Items.COAL) == 1,
+        Fixture f = fixture(h, Blocks.SMOKER, Items.BEEF); start(f, 2); f.port.workTick(); cook(f.machine, f.port, 230);
+        h.assertTrue(count(f.terminal.inventory(), f.output, Items.COOKED_BEEF) == 2 && !f.port.isRunning() && count(f.terminal.inventory(), f.fuel, Items.COAL) == 1,
                 "Smoker did not use its actual cooking ticker and reusable fuel"); h.succeed();
     }
     @GameTest(template = "empty")
@@ -134,7 +127,7 @@ public final class TerminalProgramTests {
         Fixture f = fixture(h, Blocks.FURNACE, Items.SAND); start(f, 2); f.port.workTick();
         CompoundTag prototype = f.port.saveWithoutMetadata(), data = prototype.getCompound("Production");
         data.putInt("Version", 1); data.remove("OwnerProgram"); data.remove("RunIdentity"); data.remove("AdapterState");
-        var before = f.terminal.inventory().save(); f.port.load(prototype); cook(f, 240);
+        var before = f.terminal.inventory().save(); f.port.load(prototype); cook(f.machine, f.port, 240);
         h.assertTrue(!f.port.isRunning() && f.port.runtimeView().getString("Status").equals("production_legacy_stopped")
                 && before.equals(f.terminal.inventory().save()) && f.machine.getItem(2).is(Items.GLASS),
                 "Prototype upgrade continued an invisible job or changed real ingredients/output");
