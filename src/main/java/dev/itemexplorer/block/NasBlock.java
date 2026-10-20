@@ -4,6 +4,7 @@ import dev.itemexplorer.ModContent;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.util.RandomSource;
 import net.minecraft.world.Containers;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
@@ -47,6 +48,14 @@ public final class NasBlock extends StorageBlock {
 
     @Override public VoxelShape getOcclusionShape(BlockState state, BlockGetter level, BlockPos pos) {
         return OCCLUSION.get(state.getValue(HorizontalDirectionalBlock.FACING));
+    }
+
+    /** Same condition as the renderer's red LEDs: locked data, or an inserted disk that cannot mount. */
+    @Override public void animateTick(BlockState state, Level level, BlockPos pos, RandomSource random) {
+        if (!(level.getBlockEntity(pos) instanceof NasBlockEntity nas)) return;
+        boolean fault = nas.isVisibleLocked();
+        for (int i = 0; i < NasBlockEntity.BAYS && !fault; i++) fault = nas.hasVisibleDisk(i) && !nas.isVisibleOnline(i);
+        if (fault) DeviceParticles.fault(level, pos, state.getValue(HorizontalDirectionalBlock.FACING), .52, .35, random);
     }
 
     @Override public BlockEntity newBlockEntity(BlockPos pos, BlockState state) { return new NasBlockEntity(pos, state); }

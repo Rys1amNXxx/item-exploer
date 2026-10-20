@@ -97,14 +97,25 @@ public final class BaseStationStructure {
 
     /** Counts installed modules only; inspecting a station never loads a missing chunk. */
     public static int countChunkLoaders(Level level, BlockPos controller, Direction front) {
-        int count = 0;
+        return chunkLoaders(level, controller, front).size();
+    }
+
+    /** Installed module slots with their outward faces; same loading rule as {@link #countChunkLoaders}. */
+    public static List<Requirement> chunkLoaders(Level level, BlockPos controller, Direction front) {
+        List<Requirement> result = new ArrayList<>(2);
         for (Requirement required : requirements(controller, front)) {
             if (required.part() != Part.MODULE || !level.hasChunkAt(required.pos())) continue;
             BlockState state = level.getBlockState(required.pos());
             if (state.is(ModContent.BASE_STATION_CHUNK_LOADER_BLOCK.get())
-                    && state.getValue(BaseStationControllerBlock.FACING) == required.facing()) count++;
+                    && state.getValue(BaseStationControllerBlock.FACING) == required.facing()) result.add(required);
         }
-        return count;
+        return result;
+    }
+
+    public static BlockPos capPosition(BlockPos controller, Direction front) {
+        for (Requirement required : requirements(controller, front))
+            if (required.part() == Part.CAP) return required.pos();
+        throw new IllegalStateException("Station layout has no cap");
     }
 
     public static Block block(Part part) {

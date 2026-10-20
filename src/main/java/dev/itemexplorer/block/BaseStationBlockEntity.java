@@ -5,9 +5,11 @@ import dev.itemexplorer.menu.BaseStationMenu;
 import dev.itemexplorer.station.BaseStationStructure;
 import dev.itemexplorer.station.StationChunkLoading;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.MenuProvider;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
@@ -21,8 +23,14 @@ import java.util.List;
 
 /** Structural controller and opt-in public wireless access. The controller never buffers items. */
 public final class BaseStationBlockEntity extends BlockEntity implements MenuProvider {
+    private static final int CHUNK_PULSE_TICKS = 40;
     private BaseStationStructure.Result validation;
     private boolean pendingRefresh = true;
+    /**
+     * False while the last check, or a restore from save, could not see every part. Becoming formed
+     * right after that only means the chunks finished loading, so the formation effect is skipped.
+     */
+    private boolean settled = true;
     private boolean networkOnline;
     private boolean chunkLoadingEnabled;
     private long chunkLoadingRevision;
@@ -72,17 +80,23 @@ public final class BaseStationBlockEntity extends BlockEntity implements MenuPro
 
     private void refreshStructure(boolean updateChunkLoading) {
         if (level == null || level.isClientSide || isRemoved()) return;
-        if (!level.hasChunkAt(worldPosition)) { validation = unchecked(); pendingRefresh = true; return; }
+        if (!level.hasChunkAt(worldPosition)) { validation = unchecked(); settled = false; pendingRefresh = true; return; }
         BlockState state = level.getBlockState(worldPosition);
         if (!state.is(ModContent.BASE_STATION_CONTROLLER_BLOCK.get())) {
             validation = unchecked();
             if (updateChunkLoading) StationChunkLoading.structureChanged(this);
             return;
         }
-        validation = BaseStationStructure.validate(level, worldPosition, state.getValue(BaseStationControllerBlock.FACING));
+        boolean announceFormed = settled;
+        Direction front = state.getValue(BaseStationControllerBlock.FACING);
+        validation = BaseStationStructure.validate(level, worldPosition, front);
+        settled = validation.issues().stream().noneMatch(issue -> issue.reason() == BaseStationStructure.Reason.UNLOADED);
         pendingRefresh = false;
-        if (state.getValue(BaseStationControllerBlock.FORMED) != validation.complete())
+        if (state.getValue(BaseStationControllerBlock.FORMED) != validation.complete()) {
             level.setBlock(worldPosition, state.setValue(BaseStationControllerBlock.FORMED, validation.complete()), Block.UPDATE_CLIENTS);
+            if (validation.complete() && announceFormed && level instanceof ServerLevel serverLevel)
+                DeviceParticles.stationFormed(serverLevel, BaseStationStructure.capPosition(worldPosition, front));
+        }
         if (updateChunkLoading) StationChunkLoading.structureChanged(this);
     }
 
@@ -90,6 +104,12 @@ public final class BaseStationBlockEntity extends BlockEntity implements MenuPro
         if (station.pendingRefresh || Math.floorMod(level.getGameTime() + pos.asLong(), 20) == 0) {
             station.refreshStructure();
             StationChunkLoading.reconcile(station);
+        }
+        if (Math.floorMod(level.getGameTime() + pos.asLong(), CHUNK_PULSE_TICKS) == 0
+                && level instanceof ServerLevel serverLevel && station.chunkLoadingActive()) {
+            for (BaseStationStructure.Requirement module : BaseStationStructure.chunkLoaders(level, pos,
+                    state.getValue(BaseStationControllerBlock.FACING)))
+                DeviceParticles.chunkLoaderPulse(serverLevel, module.pos(), module.facing());
         }
     }
 
@@ -112,6 +132,7 @@ public final class BaseStationBlockEntity extends BlockEntity implements MenuPro
         chunkLoadingStatus = chunkLoadingEnabled ? "unloaded" : "off";
         nextTransferTick = Long.MIN_VALUE;
         validation = unchecked();
+        settled = false;
         pendingRefresh = true;
     }
     @Override protected void saveAdditional(CompoundTag tag) {

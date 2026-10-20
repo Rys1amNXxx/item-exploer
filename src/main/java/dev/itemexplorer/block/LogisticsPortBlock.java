@@ -4,6 +4,7 @@ import dev.itemexplorer.ModContent;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.util.RandomSource;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.player.Player;
@@ -76,6 +77,10 @@ public final class LogisticsPortBlock extends BaseEntityBlock {
             case UP -> box(x1, 16 - z2, y1, x2, 16 - z1, y2);
             case DOWN -> box(x1, z1, 16 - y2, x2, z2, 16 - y1);
         };
+    }
+    /** Status 3 is the red fault light; the plate's front face sits 1/16 in front of the host. */
+    @Override public void animateTick(BlockState state, Level level, BlockPos pos, RandomSource random) {
+        if (state.getValue(STATUS) == 3) DeviceParticles.fault(level, pos, state.getValue(FACING), -.42, .15, random);
     }
     @Override public BlockState rotate(BlockState state, Rotation rotation) { return state.setValue(FACING, rotation.rotate(state.getValue(FACING))); }
     @Override public BlockState mirror(BlockState state, Mirror mirror) { return state.rotate(mirror.getRotation(state.getValue(FACING))); }
