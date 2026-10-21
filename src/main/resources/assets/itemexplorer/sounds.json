@@ -1,0 +1,26 @@
+{
+  "disk_insert": {
+    "subtitle": "subtitles.itemexplorer.disk_insert",
+    "sounds": ["itemexplorer:disk_insert"]
+  },
+  "disk_eject": {
+    "subtitle": "subtitles.itemexplorer.disk_eject",
+    "sounds": ["itemexplorer:disk_eject"]
+  },
+  "transfer_success": {
+    "subtitle": "subtitles.itemexplorer.transfer_success",
+    "sounds": ["itemexplorer:transfer_success"]
+  },
+  "action_denied": {
+    "subtitle": "subtitles.itemexplorer.action_denied",
+    "sounds": ["itemexplorer:action_denied"]
+  },
+  "station_startup": {
+    "subtitle": "subtitles.itemexplorer.station_startup",
+    "sounds": ["itemexplorer:station_startup"]
+  },
+  "program_complete": {
+    "subtitle": "subtitles.itemexplorer.program_complete",
+    "sounds": ["itemexplorer:program_complete"]
+  }
+}

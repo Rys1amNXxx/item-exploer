@@ -22,6 +22,7 @@ public final class ItemExplorer {
         // Constructor context injection is only supported in Forge 47.3.10 and later.
         var context = FMLJavaModLoadingContext.get();
         ModContent.register(context.getModEventBus());
+        ModSounds.register(context.getModEventBus());
         StorageNetwork.register();
         ModLoadingContext.get().registerConfig(ModConfig.Type.SERVER, StationChunkLoadingConfig.SPEC);
         context.getModEventBus().addListener(this::commonSetup);

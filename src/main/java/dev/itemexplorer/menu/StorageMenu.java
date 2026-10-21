@@ -1,6 +1,7 @@
 package dev.itemexplorer.menu;
 
 import dev.itemexplorer.ModContent;
+import dev.itemexplorer.ModSounds;
 import dev.itemexplorer.block.NasBlockEntity;
 import dev.itemexplorer.cable.CableStorageAccess;
 import dev.itemexplorer.block.StorageBlockEntity;
@@ -393,6 +394,7 @@ public final class StorageMenu extends AbstractContainerMenu {
         sentTransferConfigRevision = transferConfigRevision;
         sentDefaultVolume = defaultVolume();
         sentPortableRevision = blockEntity.portableRevision();
+        if (force) ModSounds.menuResult(player, message);
         message = "";
     }
     @Override public void broadcastChanges() {

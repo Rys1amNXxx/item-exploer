@@ -1,4 +1,10 @@
 {
+  "subtitles.itemexplorer.disk_insert": "Disk clicks into place",
+  "subtitles.itemexplorer.disk_eject": "Disk ejects",
+  "subtitles.itemexplorer.transfer_success": "Item transfer succeeds",
+  "subtitles.itemexplorer.action_denied": "Operation rejected",
+  "subtitles.itemexplorer.station_startup": "Base station assembles",
+  "subtitles.itemexplorer.program_complete": "Production program completes",
   "itemGroup.itemexplorer": "Item Explorer",
   "block.itemexplorer.storage_terminal": "Item Storage Terminal",
   "gui.itemexplorer.title": "Item Explorer",

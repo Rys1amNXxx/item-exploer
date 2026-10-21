@@ -1,6 +1,7 @@
 package dev.itemexplorer.menu;
 
 import dev.itemexplorer.ModContent;
+import dev.itemexplorer.ModSounds;
 import dev.itemexplorer.block.LogisticsPortBlockEntity;
 import dev.itemexplorer.network.StorageNetwork;
 import net.minecraft.core.BlockPos;
@@ -52,6 +53,7 @@ public final class LogisticsPortMenu extends AbstractContainerMenu {
         if (port == null || !(player instanceof ServerPlayer server)) return;
         CompoundTag view = snapshot();
         if (force || !view.equals(sentView)) { StorageNetwork.snapshot(server, containerId, view); sentView = view; }
+        if (force) ModSounds.menuResult(player, message);
         message = "";
     }
     @Override public void broadcastChanges() { super.broadcastChanges(); if (port != null && stillValid(player)) sync(false); }

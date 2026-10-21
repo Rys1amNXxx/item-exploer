@@ -13,6 +13,7 @@ import dev.itemexplorer.network.StorageNetwork;
 import dev.itemexplorer.portable.PortableAccess;
 import dev.itemexplorer.station.StationConnection;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.CameraType;
 import net.minecraft.client.Screenshot;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.AbstractWidget;
@@ -27,6 +28,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.HumanoidArm;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -39,6 +41,7 @@ import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.client.event.ScreenEvent;
+import net.minecraftforge.client.event.RenderGuiEvent;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
@@ -61,11 +64,11 @@ public final class PortableTerminalClientProbe {
     private enum Stage { START, PHYSICAL, REMOTE, SETTINGS, ENABLED, SETTINGS_SHOT, PORTABLE,
         NORMAL_SHOT, SEARCH, SELECTED, TAKE, SEARCH_SHOT, NAS, NAS_READY, MINIMUM, MINIMUM_SHOT,
         OFFLINE, OFFLINE_SHOT, RECONNECT, REVOKE_PHYSICAL, REVOKE_REMOTE, REVOKE_SETTINGS,
-        REVOKED, VERIFIED, MODEL, FINISH }
+        REVOKED, VERIFIED, MODEL, HAND_SETUP, HAND_RIGHT, HAND_LEFT, HAND_THIRD, FINISH }
     private static Stage stage = Stage.START;
     private static Path root;
     private static boolean initialized, setupQueued, done;
-    private static volatile boolean fixtureReady, offlineReady, verified;
+    private static volatile boolean fixtureReady, offlineReady, verified, handReady;
     private static volatile Throwable serverFailure;
     private static volatile String volume;
     private static int ticks, stageSince, nasEntry;
@@ -232,11 +235,41 @@ public final class PortableTerminalClientProbe {
                 }
                 case MODEL -> {
                     if (!(mc.screen instanceof ItemPreview) || renderedScreen != mc.screen) return;
-                    screenshot("portable-item-model.png"); advance(Stage.FINISH);
+                    screenshot("portable-item-model.png"); advance(Stage.HAND_SETUP);
+                }
+                case HAND_SETUP -> {
+                    if (!captured("portable-item-model.png")) return;
+                    mc.setScreen(null); mc.options.setCameraType(CameraType.FIRST_PERSON);
+                    mc.options.bobView().set(false); mc.options.fov().set(70); mc.player.setMainArm(HumanoidArm.RIGHT);
+                    server(mc, () -> {
+                        var player = player(mc); player.closeContainer();
+                        player.teleportTo(mc.getSingleplayerServer().overworld(), 86.5, 82, 87.5, 135, 5);
+                        player.setDeltaMovement(Vec3.ZERO); player.getInventory().selected = 0;
+                        player.getInventory().setItem(0, new ItemStack(ModContent.PORTABLE_TERMINAL_ITEM.get()));
+                        player.inventoryMenu.broadcastChanges(); handReady = true;
+                    });
+                    advance(Stage.HAND_RIGHT);
+                }
+                case HAND_RIGHT -> {
+                    if (!handReady || mc.screen != null || ticks - stageSince < 16) return;
+                    screenshot("portable-hand-right.png"); advance(Stage.HAND_LEFT);
+                }
+                case HAND_LEFT -> {
+                    if (!captured("portable-hand-right.png")) return;
+                    mc.player.setMainArm(HumanoidArm.LEFT);
+                    if (ticks - stageSince < 16) return;
+                    screenshot("portable-hand-left.png"); advance(Stage.HAND_THIRD);
+                }
+                case HAND_THIRD -> {
+                    if (!captured("portable-hand-left.png")) return;
+                    mc.player.setMainArm(HumanoidArm.RIGHT); mc.options.setCameraType(CameraType.THIRD_PERSON_FRONT);
+                    if (ticks - stageSince < 16) return;
+                    screenshot("portable-hand-third.png"); advance(Stage.FINISH);
                 }
                 case FINISH -> {
-                    if (!captured("portable-item-model.png")) return;
-                    log("PASS all checks; screenshots=6; actual client/server packets; no OS input; ticks=" + ticks);
+                    if (!captured("portable-hand-third.png")) return;
+                    log("PASS first-person right/left hands and third-person model captured at FOV 70");
+                    log("PASS all checks; screenshots=9; actual client/server packets; no OS input; ticks=" + ticks);
                     Files.writeString(root.resolve("result.txt"), "PASS\n", StandardCharsets.UTF_8); done = true; mc.stop();
                 }
             }
@@ -359,6 +392,15 @@ public final class PortableTerminalClientProbe {
             try (var image = Screenshot.takeScreenshot(Minecraft.getInstance().getMainRenderTarget())) { image.writeToFile(root.resolve(pendingScreenshot).toFile()); }
             completedScreenshot = pendingScreenshot; pendingScreenshot = null; log("SCREENSHOT " + completedScreenshot);
         } catch (Throwable failure) { fail(Minecraft.getInstance(), failure); }
+    }
+    @SubscribeEvent public static void worldRendered(RenderGuiEvent.Post event) {
+        Minecraft mc = Minecraft.getInstance();
+        if (System.getProperty("itemexplorer.portableClientProbe") == null || done || mc.screen != null || pendingScreenshot == null) return;
+        try {
+            event.getGuiGraphics().flush();
+            try (var image = Screenshot.takeScreenshot(mc.getMainRenderTarget())) { image.writeToFile(root.resolve(pendingScreenshot).toFile()); }
+            completedScreenshot = pendingScreenshot; pendingScreenshot = null; log("SCREENSHOT " + completedScreenshot);
+        } catch (Throwable failure) { fail(mc, failure); }
     }
     private static void screenshot(String name) { pendingScreenshot = name; completedScreenshot = null; }
     private static boolean captured(String name) { return name.equals(completedScreenshot); }

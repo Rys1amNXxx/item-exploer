@@ -1,6 +1,7 @@
 package dev.itemexplorer.menu;
 
 import dev.itemexplorer.ModContent;
+import dev.itemexplorer.ModSounds;
 import dev.itemexplorer.block.NasBlockEntity;
 import dev.itemexplorer.network.StorageNetwork;
 import net.minecraft.core.BlockPos;
@@ -43,6 +44,7 @@ public final class NasMenu extends AbstractContainerMenu {
         if (!(player instanceof ServerPlayer serverPlayer) || nas == null) return;
         CompoundTag view = nas.view(); view.putLong("Session", session); view.putString("Message", message);
         if (force || !view.equals(sentView)) { StorageNetwork.snapshot(serverPlayer, containerId, view); sentView = view; }
+        if (force) ModSounds.menuResult(player, message);
         message = "";
     }
     @Override public void broadcastChanges() { super.broadcastChanges(); if (nas != null && stillValid(player)) sync(false); }
@@ -56,9 +58,13 @@ public final class NasMenu extends AbstractContainerMenu {
                 int free = player.getInventory().getFreeSlot();
                 if (free < 0) throw new IllegalArgumentException("inventory_full");
                 ItemStack disk = nas.eject(request.bay());
-                if (!disk.isEmpty()) { player.getInventory().setItem(free, disk); player.getInventory().setChanged(); }
+                if (!disk.isEmpty()) {
+                    player.getInventory().setItem(free, disk); player.getInventory().setChanged();
+                    ModSounds.feedback(player, ModSounds.DISK_EJECT.get());
+                }
             } else {
                 ItemStack disk = getCarried(); nas.install(request.bay(), disk); disk.shrink(1); setCarried(disk);
+                ModSounds.feedback(player, ModSounds.DISK_INSERT.get());
             }
         } catch (IllegalArgumentException e) { message = e.getMessage(); }
         sync(true); super.broadcastChanges();
@@ -69,7 +75,8 @@ public final class NasMenu extends AbstractContainerMenu {
         try {
             int bay = 0; while (bay < NasBlockEntity.BAYS && !nas.disk(bay).isEmpty()) bay++;
             if (bay == NasBlockEntity.BAYS) throw new IllegalArgumentException("nas_full");
-            nas.install(bay, source); source.shrink(1); slot.setChanged(); sync(true); return original;
+            nas.install(bay, source); source.shrink(1); slot.setChanged();
+            ModSounds.feedback(player, ModSounds.DISK_INSERT.get()); sync(true); return original;
         } catch (IllegalArgumentException e) { message = e.getMessage(); sync(true); return ItemStack.EMPTY; }
     }
     @Override public void removed(Player player) { closed = true; super.removed(player); }

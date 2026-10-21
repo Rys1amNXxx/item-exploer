@@ -1,6 +1,7 @@
 package dev.itemexplorer.menu;
 
 import dev.itemexplorer.ModContent;
+import dev.itemexplorer.ModSounds;
 import dev.itemexplorer.block.ProductionPortBlockEntity;
 import dev.itemexplorer.block.StorageBlockEntity;
 import dev.itemexplorer.network.StorageNetwork;
@@ -110,6 +111,7 @@ public final class ProductionPortMenu extends AbstractContainerMenu {
         if (terminal == null || !(player instanceof ServerPlayer server)) return;
         CompoundTag view = snapshot();
         if (force || !view.equals(sentView)) { StorageNetwork.snapshot(server, containerId, view); sentView = view; }
+        if (force) ModSounds.menuResult(player, message);
         message = "";
     }
     @Override public void broadcastChanges() { super.broadcastChanges(); if (terminal != null && stillValid(player)) sync(false); }

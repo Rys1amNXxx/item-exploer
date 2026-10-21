@@ -1,6 +1,7 @@
 package dev.itemexplorer.block;
 
 import dev.itemexplorer.ModContent;
+import dev.itemexplorer.ModSounds;
 import dev.itemexplorer.cable.CableNetwork;
 import dev.itemexplorer.production.FurnaceProgram;
 import dev.itemexplorer.production.MachineAdapter;
@@ -274,7 +275,8 @@ public final class ProductionPortBlockEntity extends BlockEntity {
                 inFlight = false; completed++; changed();
             }
             if (completed >= program.count()) {
-                running = false; releaseOwner(); status("production_complete"); changed(); return;
+                running = false; releaseOwner(); status("production_complete"); changed();
+                ModSounds.device(level, worldPosition, ModSounds.PROGRAM_COMPLETE.get()); return;
             }
             if (!room(inventory, program.outputFolder(), program.result())) throw failure("production_output_full");
             if (!inFlight) {

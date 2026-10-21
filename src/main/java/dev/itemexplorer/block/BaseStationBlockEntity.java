@@ -1,6 +1,7 @@
 package dev.itemexplorer.block;
 
 import dev.itemexplorer.ModContent;
+import dev.itemexplorer.ModSounds;
 import dev.itemexplorer.menu.BaseStationMenu;
 import dev.itemexplorer.station.BaseStationStructure;
 import dev.itemexplorer.station.StationChunkLoading;
@@ -94,8 +95,10 @@ public final class BaseStationBlockEntity extends BlockEntity implements MenuPro
         pendingRefresh = false;
         if (state.getValue(BaseStationControllerBlock.FORMED) != validation.complete()) {
             level.setBlock(worldPosition, state.setValue(BaseStationControllerBlock.FORMED, validation.complete()), Block.UPDATE_CLIENTS);
-            if (validation.complete() && announceFormed && level instanceof ServerLevel serverLevel)
+            if (validation.complete() && announceFormed && level instanceof ServerLevel serverLevel) {
                 DeviceParticles.stationFormed(serverLevel, BaseStationStructure.capPosition(worldPosition, front));
+                ModSounds.device(level, worldPosition, ModSounds.STATION_STARTUP.get());
+            }
         }
         if (updateChunkLoading) StationChunkLoading.structureChanged(this);
     }

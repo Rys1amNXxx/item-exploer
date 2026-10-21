@@ -2,6 +2,7 @@ package dev.itemexplorer.gametest;
 
 import dev.itemexplorer.ItemExplorer;
 import dev.itemexplorer.ModContent;
+import dev.itemexplorer.ModSounds;
 import dev.itemexplorer.block.ProductionPortBlock;
 import dev.itemexplorer.block.ProductionPortBlockEntity;
 import dev.itemexplorer.block.StorageBlockEntity;
@@ -27,6 +28,22 @@ import static dev.itemexplorer.gametest.GameTestSupport.*;
 @GameTestHolder(ItemExplorer.MOD_ID)
 @PrefixGameTestTemplate(false)
 public final class TerminalProgramTests {
+    @GameTest(template = "empty")
+    public static void completionSoundIsOncePerBatchAndSurvivesReloadSilently(GameTestHelper h) {
+        Fixture f = fixture(h, Blocks.FURNACE, Items.SAND);
+        try (var sounds = new SoundFeedbackTests.DeviceCapture(h, f.port.getBlockPos(), ModSounds.PROGRAM_COMPLETE.get())) {
+            start(f, 2); f.port.workTick(); cook(f.machine, f.port, 430);
+            h.assertTrue(!f.port.isRunning() && count(f.terminal.inventory(), f.output, Items.GLASS) == 2
+                            && sounds.count == 1, "Batch completion was silent or played once per produced item");
+            for (int i = 0; i < 10; i++) f.port.workTick();
+            f.port.load(f.port.saveWithoutMetadata()); f.port.workTick();
+            h.assertTrue(sounds.count == 1, "Idle ticks or reload replayed a completed job");
+            start(f, 1); f.port.workTick(); f.port.cancel(); f.port.workTick();
+            h.assertTrue(sounds.count == 1, "Cancelling a job played completion");
+        }
+        h.succeed();
+    }
+
     private record Fixture(StorageBlockEntity terminal, ProductionPortBlockEntity port,
                            AbstractFurnaceBlockEntity machine, int input, int fuel, int output, int file) {}
     private static Fixture fixture(GameTestHelper h, Block block, Item inputItem) {

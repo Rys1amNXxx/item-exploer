@@ -9,6 +9,12 @@
 背包中 Shift + 双击批量存入同类物品改为一次请求处理，所有同类物品一次存完。
 开发版网络协议为 17，与下方已发布的 0.4.4（协议 14）及此前的开发构建（协议 15、16）分开使用。
 
+开发版新增六种短音效：硬盘安装、硬盘弹出、终端发送成功、菜单操作失败、基站成型及自动程序整批完成。
+硬盘和菜单提示仅播放给操作者，受原版“玩家”音量控制；基站和机器接口从设备位置发声，受“方块”音量控制并随距离衰减。
+同一玩家的同类提示在 0.3 秒内合并，背景刷新不重播；基站读档、程序已完成状态恢复和取消程序不会播放完成音。
+支持原版声音字幕（中文 / 英文），资源包可通过 `assets/itemexplorer/sounds.json` 和 `sounds/*.ogg` 替换音色。
+音源由 [生成脚本](scripts/generate-device-sounds.py) 合成，运行需要 Python、NumPy 和 soundfile；输出为单声道 Ogg Vorbis，试听 WAV 保存在 `work/audio-preview/v1/`。
+
 ## 下载与安装
 
 在 [GitHub Release v0.4.4](https://github.com/Rys1amNXxx/item-exploer/releases/tag/v0.4.4) 下载

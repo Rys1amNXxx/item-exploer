@@ -1,4 +1,10 @@
 {
+  "subtitles.itemexplorer.disk_insert": "硬盘：安装",
+  "subtitles.itemexplorer.disk_eject": "硬盘：弹出",
+  "subtitles.itemexplorer.transfer_success": "物品传输：成功",
+  "subtitles.itemexplorer.action_denied": "操作：未能完成",
+  "subtitles.itemexplorer.station_startup": "基站：结构成型",
+  "subtitles.itemexplorer.program_complete": "自动程序：完成",
   "itemGroup.itemexplorer": "物品资源管理器",
   "block.itemexplorer.storage_terminal": "物品存储终端",
   "gui.itemexplorer.title": "物品资源管理器",

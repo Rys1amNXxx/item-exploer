@@ -2,6 +2,7 @@ package dev.itemexplorer.gametest;
 
 import dev.itemexplorer.ItemExplorer;
 import dev.itemexplorer.ModContent;
+import dev.itemexplorer.ModSounds;
 import dev.itemexplorer.block.BaseStationBlockEntity;
 import dev.itemexplorer.block.BaseStationControllerBlock;
 import dev.itemexplorer.block.BaseStationMastBlock;
@@ -30,6 +31,26 @@ import java.util.concurrent.atomic.AtomicInteger;
 @GameTestHolder(ItemExplorer.MOD_ID)
 @PrefixGameTestTemplate(false)
 public final class BaseStationTests {
+    @GameTest(template = "empty")
+    public static void startupSoundOnlyOnAssemblyNotRefreshOrRestore(GameTestHelper h) {
+        BlockPos center = h.absolutePos(new BlockPos(2, 0, 2));
+        try (var sounds = new SoundFeedbackTests.DeviceCapture(h, center.north(), ModSounds.STATION_STARTUP.get())) {
+            Station station = build(h, Direction.NORTH);
+            BaseStationBlockEntity controller = controller(h, station);
+            controller.refreshStructure(); controller.refreshStructure();
+            h.assertTrue(sounds.count == 1, "Assembly did not sound exactly once");
+            controller.load(controller.saveWithoutMetadata());
+            controller.onLoad(); controller.refreshStructure();
+            h.assertTrue(sounds.count == 1, "Restoring an assembled station replayed startup");
+            h.getLevel().setBlockAndUpdate(center.above(4), Blocks.AIR.defaultBlockState());
+            controller.refreshStructure();
+            h.getLevel().setBlockAndUpdate(center.above(4), ModContent.BASE_STATION_CAP_BLOCK.get().defaultBlockState());
+            controller.refreshStructure();
+            h.assertTrue(sounds.count == 2, "Genuine reassembly did not play startup");
+        }
+        h.succeed();
+    }
+
     private record Station(BlockPos center, BlockPos controller, Direction facing, Map<BlockPos, BlockState> blocks) {}
 
     /** Independent fixture: nine whole base blocks and an eight-block tower, not validator-generated geometry. */

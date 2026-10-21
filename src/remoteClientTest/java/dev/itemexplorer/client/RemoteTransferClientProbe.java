@@ -317,6 +317,8 @@ public final class RemoteTransferClientProbe {
                     if (!finalVerified) return;
                     log("PASS stale advertised destination rejected when remote network went offline; totals source=48,target=16");
                     log("PASS child screen preserves menu session and three cursor diamonds; returned parent accepts real slot clicks");
+                    SoundClientProbe.verify(mc);
+                    log("PASS all six sound resources decoded by Minecraft; real success/rejection playback; snapshots do not replay success");
                     log("PASS all checks; screenshots=5; actual client/server packets; no OS input; ticks=" + ticks);
                     Files.writeString(root.resolve("result.txt"), "PASS\n", StandardCharsets.UTF_8);
                     done = true; mc.stop();
