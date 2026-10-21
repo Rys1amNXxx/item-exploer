@@ -99,6 +99,8 @@ public final class PortableTerminalClientProbe {
                 throw new IllegalStateException("Timed out at " + stage + " after " + ticks + " ticks");
             if (serverFailure != null) throw new IllegalStateException("Server probe failed", serverFailure);
             if (!setupQueued && mc.getSingleplayerServer() != null && mc.player != null) {
+                // A copied world's saved hotbar selection must not overwrite the server fixture's slot.
+                mc.player.getInventory().selected = 0;
                 setupQueued = true; server(mc, () -> prepare(mc));
             }
             if (!fixtureReady || mc.player == null || mc.level == null || ticks - stageSince < 4) return;
@@ -320,6 +322,7 @@ public final class PortableTerminalClientProbe {
     private static void pairAndOpen(Minecraft mc) {
         var player = player(mc); player.closeContainer(); player.setShiftKeyDown(true);
         var stack = player.getMainHandItem();
+        check(stack.is(ModContent.PORTABLE_TERMINAL_ITEM.get()), "Pairing fixture is not holding the portable terminal");
         var context = new UseOnContext(player, InteractionHand.MAIN_HAND,
                 new BlockHitResult(Vec3.atCenterOf(TERMINAL), Direction.NORTH, TERMINAL, false));
         check(stack.getItem().onItemUseFirst(stack, context).consumesAction(), "Sneak-use did not handle pairing");
