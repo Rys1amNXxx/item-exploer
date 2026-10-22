@@ -1,0 +1,33 @@
+{
+  "parent": "minecraft:block/block",
+  "ambientocclusion": false,
+  "textures": {
+    "white": "minecraft:block/white_concrete"
+  },
+  "elements": [
+    {
+      "from": [2.75, 9.25, -0.125],
+      "to": [3.25, 10.0, -0.0625],
+      "shade": false,
+      "faces": {
+        "north": { "texture": "#white", "uv": [2, 2, 14, 14], "tintindex": 0 }
+      }
+    },
+    {
+      "from": [3.25, 9.5, -0.125],
+      "to": [4.0, 9.75, -0.0625],
+      "shade": false,
+      "faces": {
+        "north": { "texture": "#white", "uv": [2, 2, 14, 14], "tintindex": 0 }
+      }
+    },
+    {
+      "from": [4.0, 9.25, -0.125],
+      "to": [4.5, 10.0, -0.0625],
+      "shade": false,
+      "faces": {
+        "north": { "texture": "#white", "uv": [2, 2, 14, 14], "tintindex": 0 }
+      }
+    }
+  ]
+}

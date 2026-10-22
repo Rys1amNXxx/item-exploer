@@ -5,6 +5,7 @@ import dev.itemexplorer.cable.DataCableEndpoint;
 import dev.itemexplorer.production.MachineAdapters;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.util.StringRepresentable;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.player.Player;
@@ -27,6 +28,7 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.block.state.properties.DirectionProperty;
+import net.minecraft.world.level.block.state.properties.EnumProperty;
 import net.minecraft.world.level.material.MapColor;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.shapes.CollisionContext;
@@ -36,15 +38,23 @@ import net.minecraft.world.phys.shapes.VoxelShape;
 /** A machine-mounted data interface. FACING points from the supported machine to its cable socket. */
 public final class ProductionPortBlock extends BaseEntityBlock implements DataCableEndpoint {
     public static final DirectionProperty FACING = BlockStateProperties.FACING;
+    public static final EnumProperty<Indicator> STATUS = EnumProperty.create("status", Indicator.class);
+    public enum Indicator implements StringRepresentable {
+        IDLE("idle"), RUNNING("running"), WAITING("waiting"), ERROR("error"), COMPLETE("complete");
+
+        private final String name;
+        Indicator(String name) { this.name = name; }
+        @Override public String getSerializedName() { return name; }
+    }
     private static final VoxelShape[] SHAPES = shapes();
 
     public ProductionPortBlock() {
         super(Properties.of().mapColor(MapColor.METAL).strength(1.5F).sound(SoundType.METAL).noOcclusion());
-        registerDefaultState(stateDefinition.any().setValue(FACING, Direction.NORTH));
+        registerDefaultState(stateDefinition.any().setValue(FACING, Direction.NORTH).setValue(STATUS, Indicator.IDLE));
     }
 
     @Override protected void createBlockStateDefinition(StateDefinition.Builder<Block, BlockState> builder) {
-        builder.add(FACING);
+        builder.add(FACING, STATUS);
     }
 
     @Override public BlockState getStateForPlacement(BlockPlaceContext context) {

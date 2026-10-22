@@ -27,7 +27,8 @@ import java.util.UUID;
 import java.util.function.Supplier;
 
 public final class StorageNetwork {
-    private static final String VERSION = "17";
+    // Device indicator properties change the block-state table; reject older peers as well.
+    private static final String VERSION = "18";
     private static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
             new ResourceLocation(ItemExplorer.MOD_ID, "storage"), () -> VERSION, VERSION::equals, VERSION::equals);
 

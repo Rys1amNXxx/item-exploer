@@ -17,6 +17,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.storage.LevelResource;
@@ -40,6 +41,9 @@ public final class ProductionPortBlockEntity extends BlockEntity {
     private long revision;
     private Tag protectedData;
     private boolean archived;
+    // Presentation only: never persist a completion flash or replay it when a chunk loads.
+    private long completionUntil = Long.MIN_VALUE;
+    private boolean awaitingStatusCheck;
 
     private record Connection(StorageBlockEntity terminal, String problem) {}
 
@@ -53,7 +57,33 @@ public final class ProductionPortBlockEntity extends BlockEntity {
         return ownsProgram(terminal, id) && runIdentity != null && runIdentity.equals(jobRunIdentity);
     }
     private void changed() { revision++; setChanged(); }
-    private void status(String next) { if (!status.equals(next)) { status = next; changed(); } }
+    private void status(String next) {
+        if (!status.equals(next)) { status = next; changed(); }
+        updateIndicator();
+    }
+    private ProductionPortBlock.Indicator indicator() {
+        if (isLocked() || interference) return ProductionPortBlock.Indicator.ERROR;
+        if (!running) {
+            if ("production_program_changed".equals(status)) return ProductionPortBlock.Indicator.ERROR;
+            return "production_complete".equals(status) && level.getGameTime() < completionUntil
+                    ? ProductionPortBlock.Indicator.COMPLETE : ProductionPortBlock.Indicator.IDLE;
+        }
+        if (awaitingStatusCheck) return ProductionPortBlock.Indicator.WAITING;
+        return switch (status) {
+            case "production_running" -> ProductionPortBlock.Indicator.RUNNING;
+            case "production_missing_input", "production_missing_fuel", "production_missing_blaze_powder",
+                    "production_output_full", "production_container_full", "production_disconnected",
+                    "production_unloaded", "production_machine_offline" -> ProductionPortBlock.Indicator.WAITING;
+            default -> ProductionPortBlock.Indicator.ERROR;
+        };
+    }
+    private void updateIndicator() {
+        if (!online()) return;
+        BlockState state = getBlockState();
+        ProductionPortBlock.Indicator next = indicator();
+        if (state.getValue(ProductionPortBlock.STATUS) != next)
+            level.setBlock(worldPosition, state.setValue(ProductionPortBlock.STATUS, next), Block.UPDATE_CLIENTS);
+    }
     private static IllegalArgumentException failure(String key) { return new IllegalArgumentException(key); }
     private BlockEntity loaded(BlockPos pos) { return level != null && level.hasChunkAt(pos) ? level.getBlockEntity(pos) : null; }
     private boolean online() { return level instanceof ServerLevel && !isRemoved() && loaded(worldPosition) == this; }
@@ -187,6 +217,7 @@ public final class ProductionPortBlockEntity extends BlockEntity {
         terminal.programs().setActive(id, true);
         program = snapshot; ownerProgram = id; jobRunIdentity = terminal.programs().file(id).runIdentity(); adapterState = state;
         completed = 0; inFlight = interference = false; expectedFuel = ItemStack.EMPTY; running = true;
+        completionUntil = Long.MIN_VALUE; awaitingStatusCheck = false;
         status("production_running"); changed();
     }
     @Deprecated public void start() {
@@ -260,7 +291,13 @@ public final class ProductionPortBlockEntity extends BlockEntity {
         finally { if (!before.equals(adapterState)) changed(); }
     }
     public void workTick() {
+        if (!online()) return;
+        try { runProgramTick(); }
+        finally { updateIndicator(); }
+    }
+    private void runProgramTick() {
         if (!online() || !running || isLocked() || program == null) return;
+        awaitingStatusCheck = false;
         if (interference) { status("production_interference"); return; }
         try {
             StorageInventory inventory = boundInventory(); BlockEntity machine = boundMachine(); verifyRecipe();
@@ -275,6 +312,7 @@ public final class ProductionPortBlockEntity extends BlockEntity {
                 inFlight = false; completed++; changed();
             }
             if (completed >= program.count()) {
+                completionUntil = level.getGameTime() + 20;
                 running = false; releaseOwner(); status("production_complete"); changed();
                 ModSounds.device(level, worldPosition, ModSounds.PROGRAM_COMPLETE.get()); return;
             }
@@ -306,6 +344,8 @@ public final class ProductionPortBlockEntity extends BlockEntity {
     }
     public static void serverTick(Level level, BlockPos pos, BlockState state, ProductionPortBlockEntity port) {
         if ((level.getGameTime() + pos.asLong()) % 5 == 0) port.workTick();
+        else if (state.getValue(ProductionPortBlock.STATUS) == ProductionPortBlock.Indicator.COMPLETE)
+            port.updateIndicator();
     }
     public CompoundTag runtimeView() {
         CompoundTag view = program == null ? new CompoundTag() : program.save();
@@ -351,6 +391,7 @@ public final class ProductionPortBlockEntity extends BlockEntity {
         super.load(tag); program = null; running = inFlight = interference = false; completed = 0; ownerProgram = 0; jobRunIdentity = null;
         identity = tag.hasUUID("PortIdentity") ? tag.getUUID("PortIdentity") : UUID.randomUUID(); identityNeedsSave = !tag.hasUUID("PortIdentity");
         adapterState = new CompoundTag(); expectedFuel = ItemStack.EMPTY; protectedData = null; archived = false; revision++;
+        completionUntil = Long.MIN_VALUE; awaitingStatusCheck = true;
         status = "production_unconfigured";
         if (!tag.contains("Production")) return;
         Tag raw = tag.get("Production");
@@ -396,7 +437,7 @@ public final class ProductionPortBlockEntity extends BlockEntity {
             protectedData = raw.copy(); program = null; running = false; status = "production_storage_locked";
         }
     }
-    @Override public void onLoad() { super.onLoad(); archiveProtectedData(); }
+    @Override public void onLoad() { super.onLoad(); archiveProtectedData(); updateIndicator(); }
     private void archiveProtectedData() {
         if (!isLocked() || archived || !(level instanceof ServerLevel server)) return;
         try {

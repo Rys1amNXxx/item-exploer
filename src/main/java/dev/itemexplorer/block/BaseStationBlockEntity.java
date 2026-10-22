@@ -41,6 +41,12 @@ public final class BaseStationBlockEntity extends BlockEntity implements MenuPro
     public boolean networkOnline() { return networkOnline; }
     public void setNetworkOnline(boolean value) {
         if (networkOnline != value) { networkOnline = value; setChanged(); }
+        if (level == null || level.isClientSide || isRemoved()) return;
+        BlockState state = getBlockState();
+        if (!state.is(ModContent.BASE_STATION_CONTROLLER_BLOCK.get())) return;
+        boolean networked = networkOnline && validation.complete() && state.getValue(BaseStationControllerBlock.FORMED);
+        if (state.getValue(BaseStationControllerBlock.NETWORKED) != networked)
+            level.setBlock(worldPosition, state.setValue(BaseStationControllerBlock.NETWORKED, networked), Block.UPDATE_CLIENTS);
     }
     public boolean transferReady(long now) { return now >= nextTransferTick; }
     public void recordTransfer(long now) { nextTransferTick = now + dev.itemexplorer.transfer.RemoteTransfers.COOLDOWN_TICKS; }
@@ -93,12 +99,13 @@ public final class BaseStationBlockEntity extends BlockEntity implements MenuPro
         validation = BaseStationStructure.validate(level, worldPosition, front);
         settled = validation.issues().stream().noneMatch(issue -> issue.reason() == BaseStationStructure.Reason.UNLOADED);
         pendingRefresh = false;
-        if (state.getValue(BaseStationControllerBlock.FORMED) != validation.complete()) {
-            level.setBlock(worldPosition, state.setValue(BaseStationControllerBlock.FORMED, validation.complete()), Block.UPDATE_CLIENTS);
-            if (validation.complete() && announceFormed && level instanceof ServerLevel serverLevel) {
-                DeviceParticles.stationFormed(serverLevel, BaseStationStructure.capPosition(worldPosition, front));
-                ModSounds.device(level, worldPosition, ModSounds.STATION_STARTUP.get());
-            }
+        boolean formedChanged = state.getValue(BaseStationControllerBlock.FORMED) != validation.complete();
+        BlockState appearance = state.setValue(BaseStationControllerBlock.FORMED, validation.complete())
+                .setValue(BaseStationControllerBlock.NETWORKED, validation.complete() && networkOnline);
+        if (state != appearance) level.setBlock(worldPosition, appearance, Block.UPDATE_CLIENTS);
+        if (formedChanged && validation.complete() && announceFormed && level instanceof ServerLevel serverLevel) {
+            DeviceParticles.stationFormed(serverLevel, BaseStationStructure.capPosition(worldPosition, front));
+            ModSounds.device(level, worldPosition, ModSounds.STATION_STARTUP.get());
         }
         if (updateChunkLoading) StationChunkLoading.structureChanged(this);
     }

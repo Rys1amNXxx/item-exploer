@@ -25,10 +25,14 @@ public final class ClientEvents {
 
     @SubscribeEvent public static void registerRenderers(EntityRenderersEvent.RegisterRenderers event) {
         event.registerBlockEntityRenderer(ModContent.NAS_ENTITY.get(), NasRenderer::new);
+        event.registerBlockEntityRenderer(ModContent.PRODUCTION_ENTITY.get(), ProductionPortRenderer::new);
+        event.registerBlockEntityRenderer(ModContent.BASE_STATION_ENTITY.get(), BaseStationRenderer::new);
     }
     @SubscribeEvent public static void registerModels(ModelEvent.RegisterAdditional event) {
         event.register(NasRenderer.TRAY); event.register(NasRenderer.BADGE);
         event.register(NasRenderer.FRONT_LED); event.register(NasRenderer.TOP_LED);
+        event.register(ProductionPortRenderer.INDICATOR);
+        event.register(BaseStationRenderer.NETWORK_LED);
     }
 
     @SubscribeEvent public static void registerReloadListeners(RegisterClientReloadListenersEvent event) {

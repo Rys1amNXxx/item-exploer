@@ -1,0 +1,29 @@
+// Real model/BER screenshots in a disposable client directory; no world or server is opened.
+gradle.beforeProject { project -> project.afterEvaluate {
+    project.sourceSets.create('deviceClientTest') {
+        java.srcDir 'src/deviceClientTest/java'
+        compileClasspath += project.sourceSets.main.output + project.sourceSets.main.compileClasspath
+        runtimeClasspath += output + compileClasspath
+    }
+    def probeDirectory = project.file('work/device-visual-review')
+    def clientRun = project.minecraft.runs.client
+    clientRun.workingDirectory = probeDirectory
+    clientRun.property 'itemexplorer.deviceClientProbe', probeDirectory.absolutePath
+    clientRun.jvmArgs '-Xms256m', '-Xmx1536m'
+    clientRun.mods.itemexplorer.source project.sourceSets.deviceClientTest
+    clientRun.args '--username', 'DeviceProbe', '--width', '1200', '--height', '800'
+    project.tasks.matching { it.name == 'runClient' }.configureEach {
+        doFirst {
+            probeDirectory.mkdirs()
+            new File(probeDirectory, 'options.txt').setText('lang:en_us\nguiScale:2\npauseOnLostFocus:false\nfullscreen:false\nonboardAccessibility:false\n', 'UTF-8')
+            def result = new File(probeDirectory, 'result.txt')
+            if (result.exists() && (!result.isFile() || !result.delete()))
+                throw new GradleException('Could not clear device visual acceptance result.txt')
+        }
+        doLast {
+            def result = new File(probeDirectory, 'result.txt')
+            if (!result.isFile() || result.getText('UTF-8').trim() != 'PASS')
+                throw new GradleException('Device visual acceptance failed; inspect work/device-visual-review/report.txt')
+        }
+    }
+} }

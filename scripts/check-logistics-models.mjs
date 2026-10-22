@@ -30,4 +30,8 @@ for (let status = 0; status < 4; status++) for (const connected of [false,true])
     const selected = parts.filter(part => Object.entries(part.when).every(([key,value]) => state[key] === value));
     check(`port ${status} / connected=${connected}`, selected.flatMap(part => elements(part.apply.model))); checked++;
 }
-console.log(`Checked ${checked} disk / interface variants: no overlapping coplanar or near-coplanar faces.`);
+check('production indicator', [...elements('block/production_port'), ...elements('block/production_port_indicator')]); checked++;
+for (const controller of ['base_station_controller', 'base_station_controller_formed']) {
+    check(controller + ' wireless indicator', [...elements('block/' + controller), ...elements('block/base_station_network_led')]); checked++;
+}
+console.log(`Checked ${checked} disk / interface / controller variants: no overlapping coplanar or near-coplanar faces.`);

@@ -1,5 +1,5 @@
 // Deterministic Minecraft resources for the 17-block base station.
-// Native cuboids and opaque pixels only; no renderer, image service or power system.
+// Native cuboids and opaque pixels; the small wireless indicator uses a separate renderer.
 import { copyFileSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';
 import { fileURLToPath } from 'node:url';
@@ -92,8 +92,28 @@ full.faces.up.texture = full.faces.down.texture = '#top';
 saveModel('casing', [full], casingTextures);
 for (const [part, front] of [['controller', 'controller_front_off'], ['network_port', 'data_port'], ['module', 'blank_module']]) {
   const body = structuredClone(full); body.faces.north.texture = '#front';
-  saveModel(part, [body], { ...casingTextures, front: texture(front) });
+  const elements = [body], textures = { ...casingTextures, front: texture(front) };
+  if (part === 'controller') {
+    textures.network_recess = 'itemexplorer:block/hardware_dark';
+    elements.push(plane([2.5, 9.0, -0.0625], [4.75, 10.25, 0], 'north', 'network_recess', [0, 0, 16, 16]));
+  }
+  saveModel(part, elements, textures);
 }
+// Two linked squares distinguish the wireless lamp from the structure lamp above it.
+// The client renderer tints these white faces cyan and supplies full-bright lighting.
+const networkLed = [
+  [[2.75, 9.25, -0.125], [3.25, 10.0, -0.0625]],
+  [[3.25, 9.5, -0.125], [4.0, 9.75, -0.0625]],
+  [[4.0, 9.25, -0.125], [4.5, 10.0, -0.0625]]
+].map(([from, to]) => {
+  const element = plane(from, to, 'north', 'white', [2, 2, 14, 14]);
+  element.shade = false; element.faces.north.tintindex = 0;
+  return element;
+});
+write(assets + 'models/block/' + id('network_led') + '.json', {
+  parent: 'minecraft:block/block', ambientocclusion: false,
+  textures: { white: 'minecraft:block/white_concrete' }, elements: networkLed
+});
 // A recessed panel with nine raised tiles distinguishes the 3x3 chunk module.
 // It shares the station's reviewed textures; the center tile marks its controller chunk.
 const chunkBody = structuredClone(full);

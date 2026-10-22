@@ -1,0 +1,4 @@
+Device model and indicator real-render acceptance
+CAPTURE device-states
+CAPTURE port-six-directions
+PASS: 30 production state/orientation combinations, 16 station state/orientation combinations; two real-render screenshots.

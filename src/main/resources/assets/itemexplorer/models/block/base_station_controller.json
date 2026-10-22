@@ -4,7 +4,8 @@
     "side": "itemexplorer:block/base_station/casing_side",
     "top": "itemexplorer:block/base_station/casing_top",
     "particle": "itemexplorer:block/base_station/casing_side",
-    "front": "itemexplorer:block/base_station/controller_front_off"
+    "front": "itemexplorer:block/base_station/controller_front_off",
+    "network_recess": "itemexplorer:block/hardware_dark"
   },
   "elements": [
     {
@@ -79,6 +80,13 @@
           ],
           "cullface": "down"
         }
+      }
+    },
+    {
+      "from": [2.5, 9.0, -0.0625],
+      "to": [4.75, 10.25, 0],
+      "faces": {
+        "north": { "texture": "#network_recess", "uv": [0, 0, 16, 16] }
       }
     }
   ]
