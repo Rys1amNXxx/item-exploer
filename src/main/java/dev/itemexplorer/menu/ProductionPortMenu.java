@@ -6,8 +6,10 @@ import dev.itemexplorer.block.ProductionPortBlockEntity;
 import dev.itemexplorer.block.StorageBlockEntity;
 import dev.itemexplorer.network.StorageNetwork;
 import dev.itemexplorer.production.ProgramFile;
+import dev.itemexplorer.production.ProcessingPattern;
 import dev.itemexplorer.production.TerminalPrograms;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
@@ -17,6 +19,9 @@ import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.item.ItemStack;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /** A program document editor authorized at the terminal, independent of machine distance. */
 public final class ProductionPortMenu extends AbstractContainerMenu {
@@ -30,6 +35,8 @@ public final class ProductionPortMenu extends AbstractContainerMenu {
     private boolean closed;
     private String topology = "", message = "";
     private CompoundTag clientView = new CompoundTag(), sentView;
+    private long saveSerial;
+    private CompoundTag saveReceipt;
 
     public ProductionPortMenu(int id, Inventory inventory, FriendlyByteBuf data) {
         this(id, inventory, data.readBlockPos(), null, data.readVarInt(), data.readVarInt(), data.readVarInt());
@@ -73,14 +80,16 @@ public final class ProductionPortMenu extends AbstractContainerMenu {
         for (var port : machines.ports()) {
             CompoundTag machine = new CompoundTag(); long position = port.getBlockPos().asLong();
             machine.putLong("Pos", position); machine.putString("Id", port.identity().toString());
-            machine.putString("Type", port.machineType()); machine.putBoolean("Connected", true);
-            machine.putString("Label", "block.minecraft." + (port.machineType().equals("brewing") ? "brewing_stand" : port.machineType()));
+            String machineType = port.machineType();
+            machine.putString("Type", machineType); machine.putBoolean("Connected", !machineType.isEmpty());
+            machine.putString("Label", player.level().hasChunkAt(port.machinePosition())
+                    ? player.level().getBlockState(port.machinePosition()).getBlock().getDescriptionId() : "gui.itemexplorer.production_unloaded_machine");
             machine.putString("Coordinates", port.machinePosition().toShortString()); machineTags.add(machine);
             if (position == selectedMachine) selectedPort = port;
         }
         view.put("Machines", machineTags); view.putLong("MachinePos", selectedMachine);
         view.putString("MachineType", selectedPort == null ? file != null && file.configured() ? file.definition().kind() : "" : selectedPort.machineType());
-        view.putBoolean("MachineOnline", selectedPort != null);
+        view.putBoolean("MachineOnline", selectedPort != null && !selectedPort.machineType().isEmpty());
         if (file != null && file.configured()) view.putLong("SavedMachinePos", file.portPos().asLong());
         view.putString("Name", file == null ? "" : file.name()); view.putInt("ProgramId", fileId);
         view.putBoolean("Configured", file != null && file.configured());
@@ -105,7 +114,19 @@ public final class ProductionPortMenu extends AbstractContainerMenu {
         }
         view.putLong("Revision", terminal.programs().revision()); view.putLong("Session", session);
         view.putLong("Context", context); view.putString("Message", message);
+        if (saveReceipt != null) view.put("SaveReceipt", saveReceipt.copy());
         return view;
+    }
+    /** Keep confirmation across ordinary snapshots so a slow frame cannot miss a save response. */
+    private void recordSave(long requestContext, long requestRevision, long machinePos) {
+        saveReceipt = new CompoundTag();
+        saveReceipt.putLong("Serial", ++saveSerial);
+        saveReceipt.putLong("RequestContext", requestContext);
+        saveReceipt.putLong("RequestRevision", requestRevision);
+        saveReceipt.putLong("MachinePos", machinePos);
+        saveReceipt.putLong("Revision", terminal.programs().revision());
+        saveReceipt.putBoolean("Success", "production_saved".equals(message));
+        saveReceipt.putString("Message", message);
     }
     private void sync(boolean force) {
         if (terminal == null || !(player instanceof ServerPlayer server)) return;
@@ -124,7 +145,10 @@ public final class ProductionPortMenu extends AbstractContainerMenu {
         }
         refreshContext();
         if (request.context() != context || request.revision() != terminal.programs().revision()) {
-            message = "production_stale"; sync(true); return;
+            message = "production_stale";
+            if (request.action() == StorageNetwork.ProductionAction.SAVE)
+                recordSave(request.context(), request.revision(), request.machinePos());
+            sync(true); return;
         }
         try {
             if (terminal.programs().isLocked() || terminal.inventory().isLocked()) throw new IllegalArgumentException("production_storage_locked");
@@ -154,7 +178,61 @@ public final class ProductionPortMenu extends AbstractContainerMenu {
                 default -> { }
             }
         } catch (IllegalArgumentException rejected) { message = rejected.getMessage(); }
+        if (request.action() == StorageNetwork.ProductionAction.SAVE)
+            recordSave(request.context(), request.revision(), request.machinePos());
         sync(true);
+    }
+
+    public void handle(StorageNetwork.ProcessingPatternRequest request) {
+        if (terminal == null || request.menuId() != containerId || !stillValid(player)) return;
+        long now = player.level().getGameTime(); if (now != tick) { tick = now; requests = 0; }
+        if (++requests > 10 || request.session() != session) return;
+        refreshContext();
+        if (request.context() != context || request.revision() != terminal.programs().revision()) {
+            message = "production_stale"; recordSave(request.context(), request.revision(), request.machinePos());
+            sync(true); return;
+        }
+        try {
+            if (terminal.programs().isLocked() || terminal.inventory().isLocked()) throw new IllegalArgumentException("production_storage_locked");
+            ProgramFile file = terminal.programs().file(fileId);
+            if (file == null) throw new IllegalArgumentException("production_missing_program");
+            if (file.active()) throw new IllegalArgumentException("production_running");
+            if (request.machinePos() != selectedMachine) throw new IllegalArgumentException("production_stale");
+            var port = TerminalPrograms.reachable(terminal, selectedMachine);
+            if (!"item_handler".equals(port.machineType())) throw new IllegalArgumentException("production_machine_changed");
+            ProcessingPattern previous = file.configured() && file.definition().generic() ? file.definition().pattern() : null;
+            ProcessingPattern pattern = new ProcessingPattern(request.inputFace(), request.outputFace(),
+                    resolveRows(request.inputs(), previous == null ? List.of() : previous.inputs(), true),
+                    resolveRows(request.outputs(), previous == null ? List.of() : previous.outputs(), false));
+            var definition = port.createProcessingDefinition(request.name(), pattern);
+            terminal.programs().rename(fileId, request.name());
+            terminal.programs().configure(fileId, definition, port.getBlockPos(), port.identity());
+            message = "production_saved";
+        } catch (IllegalArgumentException rejected) { message = rejected.getMessage(); }
+        recordSave(request.context(), request.revision(), request.machinePos());
+        sync(true);
+    }
+
+    private List<ProcessingPattern.Material> resolveRows(List<StorageNetwork.PatternRow> rows,
+                                                         List<ProcessingPattern.Material> previous, boolean input) {
+        if (rows.isEmpty() || rows.size() > 9) throw new IllegalArgumentException("production_invalid_config");
+        List<ProcessingPattern.Material> materials = new ArrayList<>(rows.size());
+        for (var row : rows) {
+            if (!terminal.inventory().hasFolder(row.folder())) throw new IllegalArgumentException("production_invalid_folder");
+            ItemStack stack;
+            if (row.entry() > 0) {
+                var entry = terminal.inventory().entry(row.entry());
+                if (entry == null || input && entry.folder() != row.folder()) throw new IllegalArgumentException("production_invalid_sample");
+                stack = entry.stack();
+            } else {
+                int index = -row.entry() - 1;
+                if (index < 0 || index >= previous.size()) throw new IllegalArgumentException("production_invalid_sample");
+                stack = previous.get(index).stack();
+            }
+            if (stack.isEmpty() || row.count() > stack.getMaxStackSize()) throw new IllegalArgumentException("production_invalid_config");
+            stack.setCount(row.count()); materials.add(new ProcessingPattern.Material(row.folder(), stack, row.face() < 0 ? null : Direction.values()[row.face()]));
+        }
+        return materials;
     }
     @Override public ItemStack quickMoveStack(Player player, int slot) { return ItemStack.EMPTY; }
     @Override public void removed(Player player) { closed = true; super.removed(player); }

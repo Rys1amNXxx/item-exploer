@@ -1,0 +1,24 @@
+// Opt-in rendered generic-pattern acceptance; only touches the explicitly isolated probe world.
+gradle.beforeProject { p -> p.afterEvaluate {
+    def probeDirectory = p.file('work/generic-production-client')
+    def run = p.minecraft.runs.client
+    run.workingDirectory = probeDirectory
+    run.property 'itemexplorer.genericProductionClientProbe', probeDirectory.absolutePath
+    run.jvmArgs '-Xms256m', '-Xmx1536m'
+    run.mods.itemexplorer.source p.sourceSets.gametest
+    run.args '--username', 'GenericProbe', '--width', '640', '--height', '480', '--quickPlaySingleplayer', 'Generic Production Probe'
+    p.tasks.matching { it.name == 'runClient' }.configureEach {
+        doFirst {
+            if (!new File(probeDirectory, 'saves/Generic Production Probe/level.dat').isFile())
+                throw new GradleException('Prepare an isolated Generic Production Probe world in work/generic-production-client/saves with zh_cn options')
+            def result = new File(probeDirectory, 'result.txt')
+            if (result.exists() && (!result.isFile() || !result.delete()))
+                throw new GradleException('Could not clear generic production probe result.txt')
+        }
+        doLast {
+            def result = new File(probeDirectory, 'result.txt')
+            if (!result.isFile() || result.getText('UTF-8').trim() != 'PASS')
+                throw new GradleException('Generic production client acceptance failed; inspect work/generic-production-client/report.txt')
+        }
+    }
+} }

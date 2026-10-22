@@ -5,7 +5,7 @@ import net.minecraft.world.level.block.state.BlockState;
 public final class MachineAdapters {
     private MachineAdapters() {}
     public static boolean validKind(String kind) {
-        return "furnace".equals(kind) || "blast_furnace".equals(kind) || "smoker".equals(kind) || "brewing".equals(kind);
+        return "furnace".equals(kind) || "blast_furnace".equals(kind) || "smoker".equals(kind) || "brewing".equals(kind) || "item_handler".equals(kind);
     }
     public static MachineAdapter byKind(String kind) {
         return switch (kind) {

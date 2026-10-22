@@ -1,0 +1,8 @@
+Generic production client acceptance
+START pid=24328 language=zh_cn
+SCREENSHOT generic-minimum-outputs.png
+SCREENSHOT generic-minimum-inputs.png
+PASS save: two inputs/two outputs, counts, source/destination folders and per-row face survived the real packet round trip
+SCREENSHOT generic-minimum-reopened.png
+SCREENSHOT generic-minimum-running.png
+PASS close/reopen discards unsaved draft, run count without Save, START/CANCEL; GUI320x240 controls within viewport and nonoverlapping

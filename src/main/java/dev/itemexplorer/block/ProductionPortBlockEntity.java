@@ -6,6 +6,9 @@ import dev.itemexplorer.cable.CableNetwork;
 import dev.itemexplorer.production.FurnaceProgram;
 import dev.itemexplorer.production.MachineAdapter;
 import dev.itemexplorer.production.MachineAdapters;
+import dev.itemexplorer.production.ItemHandlerAccess;
+import dev.itemexplorer.production.ProcessingBatch;
+import dev.itemexplorer.production.ProcessingPattern;
 import dev.itemexplorer.storage.StorageInventory;
 import dev.itemexplorer.storage.StorageRecovery;
 import net.minecraft.core.BlockPos;
@@ -14,6 +17,7 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.Containers;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.Level;
@@ -22,6 +26,7 @@ import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.storage.LevelResource;
 import net.minecraftforge.items.ItemHandlerHelper;
+import net.minecraftforge.items.IItemHandler;
 
 import java.util.UUID;
 
@@ -34,6 +39,7 @@ public final class ProductionPortBlockEntity extends BlockEntity {
     private int ownerProgram;
     private UUID jobRunIdentity;
     private CompoundTag adapterState = new CompoundTag();
+    private ProcessingBatch processingBatch;
     private boolean running, inFlight, interference;
     private int completed;
     private ItemStack expectedFuel = ItemStack.EMPTY;
@@ -64,6 +70,7 @@ public final class ProductionPortBlockEntity extends BlockEntity {
     private ProductionPortBlock.Indicator indicator() {
         if (isLocked() || interference) return ProductionPortBlock.Indicator.ERROR;
         if (!running) {
+            if (processingBatch != null && processingBatch.hasOwned()) return ProductionPortBlock.Indicator.WAITING;
             if ("production_program_changed".equals(status)) return ProductionPortBlock.Indicator.ERROR;
             return "production_complete".equals(status) && level.getGameTime() < completionUntil
                     ? ProductionPortBlock.Indicator.COMPLETE : ProductionPortBlock.Indicator.IDLE;
@@ -73,7 +80,8 @@ public final class ProductionPortBlockEntity extends BlockEntity {
             case "production_running" -> ProductionPortBlock.Indicator.RUNNING;
             case "production_missing_input", "production_missing_fuel", "production_missing_blaze_powder",
                     "production_output_full", "production_container_full", "production_disconnected",
-                    "production_unloaded", "production_machine_offline" -> ProductionPortBlock.Indicator.WAITING;
+                    "production_unloaded", "production_machine_offline", "production_waiting_input",
+                    "production_waiting_output", "production_return_pending" -> ProductionPortBlock.Indicator.WAITING;
             default -> ProductionPortBlock.Indicator.ERROR;
         };
     }
@@ -89,8 +97,11 @@ public final class ProductionPortBlockEntity extends BlockEntity {
     private boolean online() { return level instanceof ServerLevel && !isRemoved() && loaded(worldPosition) == this; }
     public BlockPos machinePosition() { return worldPosition.relative(getBlockState().getValue(ProductionPortBlock.FACING).getOpposite()); }
     private MachineAdapter adapter() { return level != null && level.hasChunkAt(machinePosition()) ? MachineAdapters.forState(level.getBlockState(machinePosition())) : null; }
-    public String machineType() { MachineAdapter adapter = adapter(); return adapter == null ? "" : adapter.kind(); }
-    private BlockEntity machine() { MachineAdapter adapter = adapter(); return adapter == null ? null : adapter.find(level, machinePosition()); }
+    public String machineType() {
+        MachineAdapter adapter = adapter();
+        return adapter != null ? adapter.kind() : ItemHandlerAccess.hasHandler(loaded(machinePosition())) ? "item_handler" : "";
+    }
+    private BlockEntity machine() { MachineAdapter adapter = adapter(); return adapter == null ? loaded(machinePosition()) : adapter.find(level, machinePosition()); }
     private Connection connection() {
         if (!online()) return new Connection(null, "production_disconnected");
         var scan = CableNetwork.scan(level, worldPosition);
@@ -139,9 +150,14 @@ public final class ProductionPortBlockEntity extends BlockEntity {
     private static void folders(StorageInventory inventory, int... ids) {
         for (int id : ids) if (!inventory.hasFolder(id)) throw failure("production_invalid_folder");
     }
+    private static void folders(StorageInventory inventory, FurnaceProgram program) {
+        if (program.generic()) program.pattern().validateFolders(inventory);
+        else folders(inventory, program.inputFolder(), program.fuelFolder(), program.outputFolder());
+    }
     private void editable() {
         if (isLocked()) throw failure("production_storage_locked");
         if (running) throw failure("production_running");
+        if (processingBatch != null && processingBatch.hasOwned()) throw failure("production_return_pending");
     }
     /** Validate and capture a document definition without configuring or starting this interface. */
     public FurnaceProgram createDefinition(String name, int inputFolder, int fuelFolder, int outputFolder, int inputEntry, int fuelEntry) {
@@ -151,9 +167,30 @@ public final class ProductionPortBlockEntity extends BlockEntity {
         var input = inventory.entry(inputEntry); var fuel = inventory.entry(fuelEntry);
         if (input == null || input.folder() != inputFolder || fuel == null || fuel.folder() != fuelFolder)
             throw failure("production_invalid_sample");
-        MachineAdapter adapter = adapter(); var recipe = adapter.resolve(level, input.stack(), fuel.stack());
+        MachineAdapter adapter = adapter(); if (adapter == null) throw failure("production_invalid_config");
+        var recipe = adapter.resolve(level, input.stack(), fuel.stack());
         return new FurnaceProgram(name, inputFolder, fuelFolder, outputFolder, inputEntry, fuelEntry,
                 input.stack(), fuel.stack(), recipe.result(), recipe.recipe(), 1, terminal.productionIdentity(), machineIdentity(machine), adapter.kind());
+    }
+    public FurnaceProgram createProcessingDefinition(String name, ProcessingPattern pattern) {
+        if (isLocked()) throw failure("production_storage_locked");
+        if (pattern == null) throw failure("production_invalid_config");
+        StorageBlockEntity terminal = requireTerminal(); BlockEntity machine = requireMachine();
+        pattern.validateFolders(terminal.inventory());
+        for (var material : pattern.inputs()) requireHandler(machine, pattern.inputFace(material));
+        for (var material : pattern.outputs()) requireHandler(machine, pattern.outputFace(material));
+        return new FurnaceProgram(name, pattern, 1, terminal.productionIdentity(), machineIdentity(machine));
+    }
+    private static IItemHandler requireHandler(BlockEntity machine, Direction face) {
+        IItemHandler handler = ItemHandlerAccess.handler(machine, face);
+        if (handler == null) throw failure("production_machine_offline");
+        return handler;
+    }
+    private static void requireEmptyHandlers(BlockEntity machine, ProcessingPattern pattern) {
+        for (var material : pattern.inputs()) if (!ProcessingBatch.empty(requireHandler(machine, pattern.inputFace(material))))
+            throw failure("production_machine_busy");
+        for (var material : pattern.outputs()) if (!ProcessingBatch.empty(requireHandler(machine, pattern.outputFace(material))))
+            throw failure("production_machine_busy");
     }
     /** Compatibility for internal prototype callers. Even these definitions are now stored as terminal documents. */
     @Deprecated
@@ -177,20 +214,21 @@ public final class ProductionPortBlockEntity extends BlockEntity {
                     || jobRunIdentity == null || !jobRunIdentity.equals(file.runIdentity())) {
                 // Cancellation can be issued while this chunk is unloaded. Retire the old snapshot
                 // on reconnection without adopting or refunding anything left in the machine.
-                running = inFlight = interference = false; expectedFuel = ItemStack.EMPTY; changed();
+                running = inFlight = interference = false; expectedFuel = ItemStack.EMPTY; changed(); returnProcessingBuffers();
                 throw failure("production_program_changed");
             }
         }
-        folders(terminal.inventory(), program.inputFolder(), program.fuelFolder(), program.outputFolder());
+        folders(terminal.inventory(), program);
         return terminal.inventory();
     }
     private BlockEntity boundMachine() {
         BlockEntity machine = requireMachine();
-        if (!program.kind().equals(adapter().kind()) || !machine.getPersistentData().hasUUID(MACHINE_ID)
+        if ((!program.generic() && (adapter() == null || !program.kind().equals(adapter().kind()))) || !machine.getPersistentData().hasUUID(MACHINE_ID)
                 || !program.furnace().equals(machine.getPersistentData().getUUID(MACHINE_ID))) throw failure("production_machine_changed");
         return machine;
     }
     private void verifyRecipe() {
+        if (program.generic()) return;
         var current = adapter().resolve(level, program.input(), program.fuel());
         if (!program.recipe().equals(current.recipe()) || !same(program.result(), current.result())) throw failure("production_recipe_changed");
     }
@@ -207,16 +245,21 @@ public final class ProductionPortBlockEntity extends BlockEntity {
             throw failure("production_program_changed");
         FurnaceProgram snapshot = file.definition().withCount(count);
         if (!snapshot.terminal().equals(terminal.productionIdentity())) throw failure("production_terminal_changed");
-        folders(terminal.inventory(), snapshot.inputFolder(), snapshot.fuelFolder(), snapshot.outputFolder());
+        folders(terminal.inventory(), snapshot);
         BlockEntity machine = requireMachine(); MachineAdapter adapter = adapter();
-        if (!snapshot.kind().equals(adapter.kind()) || !snapshot.furnace().equals(machineIdentity(machine))) throw failure("production_machine_changed");
-        var current = adapter.resolve(level, snapshot.input(), snapshot.fuel());
-        if (!snapshot.recipe().equals(current.recipe()) || !same(snapshot.result(), current.result())) throw failure("production_recipe_changed");
-        if (!adapter.empty(machine)) throw failure("production_machine_busy");
-        CompoundTag state = adapter.freshState(machine); adapter.validateSavedState(state);
+        if ((!snapshot.generic() && (adapter == null || !snapshot.kind().equals(adapter.kind())))
+                || !snapshot.furnace().equals(machineIdentity(machine))) throw failure("production_machine_changed");
+        CompoundTag state;
+        if (snapshot.generic()) { requireEmptyHandlers(machine, snapshot.pattern()); state = new CompoundTag(); }
+        else {
+            var current = adapter.resolve(level, snapshot.input(), snapshot.fuel());
+            if (!snapshot.recipe().equals(current.recipe()) || !same(snapshot.result(), current.result())) throw failure("production_recipe_changed");
+            if (!adapter.empty(machine)) throw failure("production_machine_busy");
+            state = adapter.freshState(machine); adapter.validateSavedState(state);
+        }
         terminal.programs().setActive(id, true);
         program = snapshot; ownerProgram = id; jobRunIdentity = terminal.programs().file(id).runIdentity(); adapterState = state;
-        completed = 0; inFlight = interference = false; expectedFuel = ItemStack.EMPTY; running = true;
+        completed = 0; inFlight = interference = false; expectedFuel = ItemStack.EMPTY; running = true; processingBatch = null;
         completionUntil = Long.MIN_VALUE; awaitingStatusCheck = false;
         status("production_running"); changed();
     }
@@ -236,14 +279,40 @@ public final class ProductionPortBlockEntity extends BlockEntity {
         if (!ownsProgram(terminal, id)) throw failure("production_program_changed");
         cancel();
     }
-    /** Stop controlling the machine. In-flight ingredients and any reserve remain in the real machine. */
+    /** Stop controlling the machine; refund only items still owned by this interface. */
     public void cancel() {
         if (isLocked()) throw failure("production_storage_locked");
-        if (!running) { releaseOwner(); return; }
         running = inFlight = interference = false; expectedFuel = ItemStack.EMPTY;
         releaseOwner(); status("production_cancelled"); changed();
+        returnProcessingBuffers();
     }
-    public void onDetached() { if (!isLocked()) cancel(); archiveProtectedData(); }
+    public void onDetached() {
+        if (!isLocked()) {
+            cancel();
+            if (processingBatch != null && level instanceof ServerLevel) {
+                for (ItemStack stack : processingBatch.drainOwned())
+                    Containers.dropItemStack(level, worldPosition.getX() + .5, worldPosition.getY() + .5, worldPosition.getZ() + .5, stack);
+                processingBatch = null; changed();
+            }
+        }
+        archiveProtectedData();
+    }
+
+    /** A cancelled/stale job still owns its buffers, even when its document no longer exists. */
+    private void returnProcessingBuffers() {
+        if (processingBatch == null || running || program == null) return;
+        if (processingBatch.hasOwned()) {
+            try {
+                StorageBlockEntity terminal = requireTerminal();
+                if (program.terminal().equals(terminal.productionIdentity())) processingBatch.returnOwned(terminal.inventory());
+            } catch (IllegalArgumentException unavailable) { /* Preserve the exact stacks until reconnection. */ }
+        }
+        if (processingBatch.hasOwned()) status("production_return_pending");
+        else {
+            processingBatch = null; changed();
+            if ("production_return_pending".equals(status)) status("production_cancelled");
+        }
+    }
 
     private void inventoryFault() { interference = true; changed(); throw failure("production_interference"); }
     private void verifyMachineInventory(BlockEntity machine) {
@@ -296,11 +365,13 @@ public final class ProductionPortBlockEntity extends BlockEntity {
         finally { updateIndicator(); }
     }
     private void runProgramTick() {
-        if (!online() || !running || isLocked() || program == null) return;
+        if (!online() || isLocked() || program == null) return;
+        if (!running) { returnProcessingBuffers(); return; }
         awaitingStatusCheck = false;
         if (interference) { status("production_interference"); return; }
         try {
             StorageInventory inventory = boundInventory(); BlockEntity machine = boundMachine(); verifyRecipe();
+            if (program.generic()) { runProcessingTick(inventory, machine); return; }
             MachineAdapter adapter = adapter(); verifyMachineInventory(machine);
             if (!expectedFuel.isEmpty() && !same(expectedFuel, program.fuel())
                     && (!inFlight || !adapter.output(machine, program).isEmpty() || !adapter.burning(machine))) {
@@ -342,6 +413,36 @@ public final class ProductionPortBlockEntity extends BlockEntity {
             status(reason != null && reason.startsWith("production_") ? reason : "production_storage_locked");
         }
     }
+    private void runProcessingTick(StorageInventory inventory, BlockEntity machine) {
+        ProcessingPattern pattern = program.pattern();
+        // Reacquire capabilities on each tick: sided wrappers can be invalidated or reconfigured.
+        java.util.Map<Direction, IItemHandler> handlers = new java.util.EnumMap<>(Direction.class);
+        for (var material : pattern.inputs()) handlers.computeIfAbsent(pattern.inputFace(material), face -> requireHandler(machine, face));
+        for (var material : pattern.outputs()) handlers.computeIfAbsent(pattern.outputFace(material), face -> requireHandler(machine, face));
+        if (processingBatch == null) {
+            requireEmptyHandlers(machine, pattern);
+            processingBatch = new ProcessingBatch(pattern, this::changed); inFlight = true; changed();
+        }
+        if (!processingBatch.staged()) {
+            requireEmptyHandlers(machine, pattern);
+            processingBatch.reserve(inventory, handlers::get);
+        }
+        processingBatch.insert(handlers::get);
+        processingBatch.collect(handlers::get);
+        machine.setChanged();
+        processingBatch.deliver(inventory);
+        if (processingBatch.complete()) {
+            processingBatch = null; inFlight = false; completed++; changed();
+            if (completed >= program.count()) {
+                completionUntil = level.getGameTime() + 20;
+                running = false; releaseOwner(); status("production_complete"); changed();
+                ModSounds.device(level, worldPosition, ModSounds.PROGRAM_COMPLETE.get()); return;
+            }
+            status("production_running"); return;
+        }
+        status(processingBatch.outputBlocked() ? "production_output_full"
+                : !processingBatch.sentAll() ? "production_waiting_input" : "production_waiting_output");
+    }
     public static void serverTick(Level level, BlockPos pos, BlockState state, ProductionPortBlockEntity port) {
         if ((level.getGameTime() + pos.asLong()) % 5 == 0) port.workTick();
         else if (state.getValue(ProductionPortBlock.STATUS) == ProductionPortBlock.Indicator.COMPLETE)
@@ -379,18 +480,19 @@ public final class ProductionPortBlockEntity extends BlockEntity {
     @Override protected void saveAdditional(CompoundTag tag) {
         super.saveAdditional(tag); tag.putUUID("PortIdentity", identity);
         if (isLocked()) { tag.put("Production", protectedData.copy()); return; }
-        CompoundTag data = new CompoundTag(); data.putInt("Version", 2);
+        CompoundTag data = new CompoundTag(); data.putInt("Version", 3);
         if (program != null) data.put("Program", program.save());
         data.putInt("OwnerProgram", ownerProgram); data.put("AdapterState", adapterState.copy());
         if (jobRunIdentity != null) data.putUUID("RunIdentity", jobRunIdentity);
         data.putBoolean("Running", running); data.putBoolean("InFlight", inFlight); data.putBoolean("Interference", interference);
         data.putInt("Completed", completed); data.put("ExpectedFuel", expectedFuel.save(new CompoundTag()));
+        if (processingBatch != null) data.put("ProcessingBatch", processingBatch.save());
         tag.put("Production", data);
     }
     @Override public void load(CompoundTag tag) {
         super.load(tag); program = null; running = inFlight = interference = false; completed = 0; ownerProgram = 0; jobRunIdentity = null;
         identity = tag.hasUUID("PortIdentity") ? tag.getUUID("PortIdentity") : UUID.randomUUID(); identityNeedsSave = !tag.hasUUID("PortIdentity");
-        adapterState = new CompoundTag(); expectedFuel = ItemStack.EMPTY; protectedData = null; archived = false; revision++;
+        adapterState = new CompoundTag(); processingBatch = null; expectedFuel = ItemStack.EMPTY; protectedData = null; archived = false; revision++;
         completionUntil = Long.MIN_VALUE; awaitingStatusCheck = true;
         status = "production_unconfigured";
         if (!tag.contains("Production")) return;
@@ -398,7 +500,7 @@ public final class ProductionPortBlockEntity extends BlockEntity {
         try {
             if (!(raw instanceof CompoundTag data)) throw new IllegalArgumentException();
             FurnaceProgram.require(data, "Version", Tag.TAG_INT);
-            int version = data.getInt("Version"); if (version != 1 && version != 2) throw new IllegalArgumentException();
+            int version = data.getInt("Version"); if (version != 1 && version != 2 && version != 3) throw new IllegalArgumentException();
             for (String field : new String[]{"Running", "InFlight", "Interference"}) {
                 FurnaceProgram.require(data, field, Tag.TAG_BYTE);
                 if (data.getByte(field) != 0 && data.getByte(field) != 1) throw new IllegalArgumentException();
@@ -407,7 +509,7 @@ public final class ProductionPortBlockEntity extends BlockEntity {
             if (data.contains("Program")) { FurnaceProgram.require(data, "Program", Tag.TAG_COMPOUND); program = FurnaceProgram.load(data.getCompound("Program")); }
             running = data.getBoolean("Running"); inFlight = data.getBoolean("InFlight"); interference = data.getBoolean("Interference");
             completed = data.getInt("Completed"); expectedFuel = FurnaceProgram.stack(data, "ExpectedFuel", true);
-            if (version == 2) {
+            if (version >= 2) {
                 FurnaceProgram.require(data, "OwnerProgram", Tag.TAG_INT); ownerProgram = data.getInt("OwnerProgram");
                 if (data.contains("RunIdentity")) {
                     if (!data.hasUUID("RunIdentity")) throw new IllegalArgumentException();
@@ -416,8 +518,17 @@ public final class ProductionPortBlockEntity extends BlockEntity {
                 FurnaceProgram.require(data, "AdapterState", Tag.TAG_COMPOUND); adapterState = data.getCompound("AdapterState").copy();
                 if (ownerProgram < 0 || (program == null && ownerProgram != 0) || adapterState.sizeInBytes() > 4096) throw new IllegalArgumentException();
                 if (ownerProgram > 0 && running && jobRunIdentity == null) throw new IllegalArgumentException();
-                if (program != null && running) MachineAdapters.byKind(program.kind()).validateSavedState(adapterState);
+                if (program != null && running && !program.generic()) MachineAdapters.byKind(program.kind()).validateSavedState(adapterState);
             }
+            if (data.contains("ProcessingBatch")) {
+                if (version < 3 || program == null || !program.generic()) throw new IllegalArgumentException();
+                FurnaceProgram.require(data, "ProcessingBatch", Tag.TAG_COMPOUND);
+                processingBatch = ProcessingBatch.load(program.pattern(), data.getCompound("ProcessingBatch"), running, this::changed);
+            }
+            if (program != null && program.generic() && (version < 3 || ownerProgram <= 0 || !expectedFuel.isEmpty()
+                    || !adapterState.isEmpty() || (running && inFlight != (processingBatch != null))
+                    || (running && completed >= program.count())
+                    || (!running && processingBatch != null && !processingBatch.hasOwned()))) throw new IllegalArgumentException();
             if (completed < 0 || (program == null && (running || inFlight || interference || completed != 0 || !expectedFuel.isEmpty()))
                     || (program != null && completed > program.count()) || (!running && (inFlight || interference))
                     || (inFlight && completed >= program.count())) throw new IllegalArgumentException();
@@ -433,8 +544,9 @@ public final class ProductionPortBlockEntity extends BlockEntity {
             }
             status = program == null ? "production_unconfigured" : running ? "production_running"
                     : completed == program.count() ? "production_complete" : "production_ready";
+            if (!running && processingBatch != null && processingBatch.hasOwned()) status = "production_return_pending";
         } catch (RuntimeException invalid) {
-            protectedData = raw.copy(); program = null; running = false; status = "production_storage_locked";
+            protectedData = raw.copy(); program = null; processingBatch = null; running = false; status = "production_storage_locked";
         }
     }
     @Override public void onLoad() { super.onLoad(); archiveProtectedData(); updateIndicator(); }

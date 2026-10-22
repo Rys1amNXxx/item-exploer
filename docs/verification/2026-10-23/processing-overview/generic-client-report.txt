@@ -1,0 +1,15 @@
+Generic production client acceptance
+START pid=38728 language=zh_cn
+SCREENSHOT generic-machine-search.png
+SCREENSHOT generic-material-search.png
+SCREENSHOT generic-folder-search.png
+SCREENSHOT generic-minimum-recipe.png
+SCREENSHOT generic-minimum-connections.png
+SCREENSHOT generic-minimum-run-preview.png
+PASS searchable machine/item/folder selection; simultaneous 3x3 input/output overview; multi-face saved pattern
+SCREENSHOT generic-854-recipe.png
+SCREENSHOT generic-854-connections.png
+SCREENSHOT generic-854-run-preview.png
+PASS server-rejected duplicate-name SAVE never starts or inserts materials; form remains editable
+SCREENSHOT generic-854-running-trial.png
+PASS SaveReceipt-gated Save-and-trial, one-batch material conservation, CANCEL, reopen, three tabs at GUI320x240 and427x240

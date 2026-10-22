@@ -1,0 +1,20 @@
+Terminal program-file client acceptance
+START real client pid=41752 language=zh_cn
+PASS New > Program creates a real file in terminal folder 4; id=1
+SCREENSHOT production-terminal-program-file.png
+SCREENSHOT production-machine-search.png
+SCREENSHOT production-ingredient-search.png
+SCREENSHOT production-output-folder-search.png
+SCREENSHOT production-minimum-connections.png
+PASS searchable machine, ingredient, fuel and folder selection; native recipe SAVE round trip at GUI320x240
+SCREENSHOT production-minimum-configured.png
+SCREENSHOT production-minimum-run-preview.png
+PASS runtime count=2 without another Save; START and running controls
+SCREENSHOT production-minimum-running.png
+PASS real vanilla smelt completed twice; output=2, ore=1, coal=0; ghost identity remains restartable
+SCREENSHOT production-854-completed.png
+SCREENSHOT production-854-recipe.png
+SCREENSHOT production-854-connections.png
+PASS Escape returns from the distant machine editor to the original terminal folder/page
+PASS UI rename/copy/move/delete; one configured original remains; copy never ran; materials conserved
+PASS all checks; searchable recipe/connection/run tabs at GUI320x240 and427x240; terminal-owned editor; ticks=486

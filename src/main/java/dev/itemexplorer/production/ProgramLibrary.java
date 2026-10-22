@@ -76,7 +76,8 @@ public final class ProgramLibrary {
     public void configure(int id, FurnaceProgram definition, BlockPos portPos, UUID portIdentity) {
         ProgramFile file = editable(id);
         if (definition == null || portPos == null || portIdentity == null) throw new IllegalArgumentException("production_invalid_config");
-        folder(definition.inputFolder()); folder(definition.fuelFolder()); folder(definition.outputFolder());
+        if (definition.generic()) definition.pattern().validateFolders(inventory);
+        else { folder(definition.inputFolder()); folder(definition.fuelFolder()); folder(definition.outputFolder()); }
         files.put(id, new ProgramFile(id, file.folder(), file.name(), definition, portPos, portIdentity, false)); touch();
     }
     /** Server runtime owns this flag; saved independently so disconnecting a port cannot enable a second launch. */

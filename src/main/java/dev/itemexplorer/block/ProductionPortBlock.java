@@ -3,6 +3,7 @@ package dev.itemexplorer.block;
 import dev.itemexplorer.ModContent;
 import dev.itemexplorer.cable.DataCableEndpoint;
 import dev.itemexplorer.production.MachineAdapters;
+import dev.itemexplorer.production.ItemHandlerAccess;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.util.StringRepresentable;
@@ -63,14 +64,20 @@ public final class ProductionPortBlock extends BaseEntityBlock implements DataCa
     }
 
     @Override public boolean canSurvive(BlockState state, LevelReader level, BlockPos pos) {
-        BlockPos furnacePos = pos.relative(state.getValue(FACING).getOpposite());
-        return level.hasChunkAt(furnacePos) && MachineAdapters.forState(level.getBlockState(furnacePos)) != null;
+        BlockPos machinePos = pos.relative(state.getValue(FACING).getOpposite());
+        return level.hasChunkAt(machinePos) && (MachineAdapters.forState(level.getBlockState(machinePos)) != null
+                // Some mods expose inventories only on the server. Let the server authorize
+                // placement instead of preventing the client from requesting it at all.
+                || (level instanceof Level client && client.isClientSide && level.getBlockState(machinePos).hasBlockEntity())
+                || ItemHandlerAccess.hasHandler(level.getBlockEntity(machinePos)));
     }
 
     @Override public BlockState updateShape(BlockState state, Direction direction, BlockState neighbor,
                                              LevelAccessor level, BlockPos pos, BlockPos neighborPos) {
+        // A machine may temporarily disable all automation faces. Keep the physical interface
+        // attached and let its task wait, rather than deleting its saved material buffer.
         if (direction == state.getValue(FACING).getOpposite() && level.hasChunkAt(neighborPos)
-                && MachineAdapters.forState(neighbor) == null) return Blocks.AIR.defaultBlockState();
+                && MachineAdapters.forState(neighbor) == null && !neighbor.hasBlockEntity()) return Blocks.AIR.defaultBlockState();
         return state;
     }
 

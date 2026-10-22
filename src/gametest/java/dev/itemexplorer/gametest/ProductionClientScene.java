@@ -54,9 +54,10 @@ public final class ProductionClientScene {
     private static volatile boolean fixtureReady, verified;
     private static volatile Throwable fixtureFailure;
     private static volatile int inputFolder, fuelFolder, outputFolder, programFolder, inputEntry, fuelEntry;
-    private static int ticks, stage, renderedFrames, stageFrame, programId, copyId;
-    private static long started, selectionContext;
+    private static int ticks, stage, editorStage, renderedFrames, stageFrame, programId, copyId, pickerFrame;
+    private static long started;
     private static String pendingScreenshot, completedScreenshot;
+    private static String pickerQuery;
     private static CompoundTag renderedView;
     private static Path root;
 
@@ -213,7 +214,7 @@ public final class ProductionClientScene {
                 if (!verifyQueued) verifyServer(mc);
                 if (!verified) return;
                 log("PASS UI rename/copy/move/delete; one configured original remains; copy never ran; materials conserved");
-                log("PASS all checks; screenshots=4; GUI320x240 and427x240; terminal-owned editor; ticks=" + ticks);
+                log("PASS all checks; searchable recipe/connection/run tabs at GUI320x240 and427x240; terminal-owned editor; ticks=" + ticks);
                 Files.writeString(root.resolve("result.txt"), "PASS\n", StandardCharsets.UTF_8); done = true; mc.stop();
             }
             default -> { }
@@ -221,70 +222,104 @@ public final class ProductionClientScene {
     }
 
     private static void editorStep(Minecraft mc, ProductionPortScreen screen, CompoundTag view) throws Exception {
-        switch (stage) {
-            case 6 -> {
+        switch (editorStage) {
+            case 0 -> {
                 check(view.getInt("ProgramId") == programId && PROGRAM.equals(view.getString("Name")), "Left-click must open the exact terminal file");
                 validateGeometry(screen);
-                check(!button(screen, "start").active, "Unconfigured program may not start");
+                check(!button(screen, "runAction").active, "Unconfigured recipe may not run");
                 check(!view.getList("Machines", Tag.TAG_COMPOUND).isEmpty(), "Connected distant production machine missing");
-                selectionContext = view.getLong("Context"); clickWidget(screen, "machineButton"); advance(7);
+                clickWidget(screen, "machineButton"); advanceEditor(1);
             }
-            case 7 -> {
-                if (view.getLong("MachinePos") != PORT.asLong() || view.getLong("Context") == selectionContext) return;
-                chooseFolder(screen, "inputFolder", "inputFolderButton", inputFolder);
-                chooseFolder(screen, "fuelFolder", "fuelFolderButton", fuelFolder);
-                chooseFolder(screen, "outputFolder", "outputFolderButton", outputFolder); advance(8);
+            case 1 -> { if (pick(screen, "熔炉", PORT.asLong(), "production-machine-search.png")) advanceEditor(2); }
+            case 2 -> {
+                if (view.getLong("MachinePos") != PORT.asLong()
+                        || (Boolean) field(screen, "selectionPending")) return;
+                clickGrid(screen, false, 0); advanceEditor(3);
             }
-            case 8 -> {
-                check(button(screen, "save").active && !button(screen, "start").active, "Unsaved selections must enable Save only");
-                check(integer(screen, "inputEntry") == inputEntry && integer(screen, "fuelEntry") == fuelEntry, "Folder choices must preserve stable sample IDs");
-                clickWidget(screen, "save"); advance(9);
+            case 3 -> { if (pickMaterial(screen, "铁矿石", inputEntry, "production-ingredient-search.png")) advanceEditor(4); }
+            case 4 -> { clickWidget(screen, "materialFolder"); advanceEditor(5); }
+            case 5 -> { if (pick(screen, "原料", inputFolder, null)) advanceEditor(6); }
+            case 6 -> { clickGrid(screen, false, 1); advanceEditor(7); }
+            case 7 -> { if (pickMaterial(screen, "煤炭", fuelEntry, null)) advanceEditor(8); }
+            case 8 -> { clickWidget(screen, "materialFolder"); advanceEditor(9); }
+            case 9 -> { if (pick(screen, "燃料", fuelFolder, null)) advanceEditor(10); }
+            case 10 -> { clickGrid(screen, true, 0); advanceEditor(11); }
+            case 11 -> { clickWidget(screen, "materialFolder"); advanceEditor(12); }
+            case 12 -> { if (pick(screen, "产物", outputFolder, "production-output-folder-search.png")) advanceEditor(13); }
+            case 13 -> { clickWidget(screen, "connectionTab"); advanceEditor(14); }
+            case 14 -> { validateGeometry(screen); screenshot("production-minimum-connections.png"); advanceEditor(15); }
+            case 15 -> {
+                if (!captured("production-minimum-connections.png")) return;
+                clickWidget(screen, "recipeTab"); advanceEditor(16);
             }
-            case 9 -> {
-                if (!view.getBoolean("Configured")) return;
+            case 16 -> {
+                check(button(screen, "save").active && button(screen, "runAction").active, "Complete recipe did not enable saving/trial");
+                check(integer(screen, "inputEntry") == inputEntry && integer(screen, "fuelEntry") == fuelEntry, "Sample selection lost stable IDs");
+                checkGridOverview(screen); clickWidget(screen, "save"); advanceEditor(17);
+            }
+            case 17 -> {
+                if (!view.getBoolean("Configured") || (field(screen, "pendingSave") != null)) return;
                 check(view.getInt("InputEntry") == inputEntry && view.getInt("FuelEntry") == fuelEntry
                         && view.getLong("SavedMachinePos") == PORT.asLong(), "Saved file did not preserve machine/sample IDs");
-                check(button(screen, "start").active, "Saved form must enable Start");
-                log("PASS terminal-file SAVE round trip and connected machine selection at GUI320x240");
-                screenshot("production-minimum-configured.png"); advance(10);
+                check(!view.getBoolean("Running") && button(screen, "runAction").active, "Save alone started production or disabled running");
+                validateGeometry(screen); checkGridOverview(screen);
+                log("PASS searchable machine, ingredient, fuel and folder selection; native recipe SAVE round trip at GUI320x240");
+                screenshot("production-minimum-configured.png"); advanceEditor(18);
             }
-            case 10 -> {
+            case 18 -> {
                 if (!captured("production-minimum-configured.png")) return;
-                replaceText(screen, "count", "2"); advance(11);
+                clickWidget(screen, "runTab"); advanceEditor(19);
             }
-            case 11 -> {
-                check(button(screen, "start").active, "Changing only run count must not require saving the program again");
-                clickWidget(screen, "start"); advance(12);
+            case 19 -> { replaceText(screen, "count", "2"); advanceEditor(20); }
+            case 20 -> {
+                List<String> inputs = screen.runSummary(false), outputs = screen.runSummary(true);
+                check(!inputs.isEmpty() && inputs.get(0).contains("2") && !outputs.isEmpty() && outputs.get(0).contains("2"),
+                        "Native batch preview does not show two ores/two ingots: " + inputs + " / " + outputs);
+                validateGeometry(screen); screenshot("production-minimum-run-preview.png"); advanceEditor(21);
             }
-            case 12 -> {
+            case 21 -> {
+                if (!captured("production-minimum-run-preview.png")) return;
+                check(button(screen, "runAction").active, "Changing only run count disabled production");
+                clickWidget(screen, "runAction"); advanceEditor(22);
+            }
+            case 22 -> {
                 if (!view.getBoolean("Running")) return;
                 check(view.getInt("Count") == 2, "Start must use the new run count");
-                check(!button(screen, "save").active && !button(screen, "start").active && button(screen, "cancel").active,
+                check(!button(screen, "save").active && !button(screen, "runAction").active && button(screen, "cancel").active,
                         "Running job must disable Save/Start and enable Cancel");
                 log("PASS runtime count=2 without another Save; START and running controls");
-                screenshot("production-minimum-running.png"); advance(13);
+                screenshot("production-minimum-running.png"); advanceEditor(23);
             }
-            case 13 -> {
+            case 23 -> {
                 if (!captured("production-minimum-running.png") || view.getBoolean("Running") || view.getInt("Completed") != 2) return;
                 check(entryCount(view, inputEntry) == 1 && entryCount(view, fuelEntry) == 0 && itemCount(view, Items.IRON_INGOT) == 2,
                         "Two runs must consume two ores/one coal and return two ingots");
-                check(integer(screen, "fuelEntry") == fuelEntry && button(screen, "start").active,
+                check(integer(screen, "fuelEntry") == fuelEntry && button(screen, "runAction").active,
                         "Depleted fuel must keep saved ghost identity and allow another Start");
                 log("PASS real vanilla smelt completed twice; output=2, ore=1, coal=0; ghost identity remains restartable");
-                GLFW.glfwSetWindowSize(mc.getWindow().getWindow(), 854, 480); mc.resizeDisplay(); advance(14);
+                GLFW.glfwSetWindowSize(mc.getWindow().getWindow(), 854, 480); mc.resizeDisplay(); advanceEditor(24);
             }
-            case 14 -> {
+            case 24 -> {
                 if (screen.width != 427 || screen.height != 240) return;
-                validateGeometry(screen); screenshot("production-854-completed.png"); advance(15);
+                validateGeometry(screen); screenshot("production-854-completed.png"); advanceEditor(25);
             }
-            case 15 -> {
+            case 25 -> {
                 if (!captured("production-854-completed.png")) return;
-                screen.keyPressed(GLFW.GLFW_KEY_ESCAPE, 0, 0); advance(16);
+                clickWidget(screen, "recipeTab"); advanceEditor(26);
+            }
+            case 26 -> { checkGridOverview(screen); validateGeometry(screen); screenshot("production-854-recipe.png"); advanceEditor(27); }
+            case 27 -> {
+                if (!captured("production-854-recipe.png")) return;
+                clickWidget(screen, "connectionTab"); advanceEditor(28);
+            }
+            case 28 -> { validateGeometry(screen); screenshot("production-854-connections.png"); advanceEditor(29); }
+            case 29 -> {
+                if (!captured("production-854-connections.png")) return;
+                editorStage = 30; screen.keyPressed(GLFW.GLFW_KEY_ESCAPE, 0, 0); advance(16);
             }
             default -> { }
         }
     }
-
     private static void verifyServer(Minecraft mc) {
         verifyQueued = true; var server = mc.getSingleplayerServer(); var playerId = mc.player.getUUID();
         server.execute(() -> {
@@ -322,7 +357,6 @@ public final class ProductionClientScene {
     }
     private static void validateGeometry(ProductionPortScreen screen) {
         List<AbstractWidget> widgets = screen.children().stream().filter(AbstractWidget.class::isInstance).map(AbstractWidget.class::cast).filter(w -> w.visible).toList();
-        check(widgets.size() == 12, "Expected 12 configuration/navigation controls, got " + widgets.size());
         for (int i = 0; i < widgets.size(); i++) {
             AbstractWidget a = widgets.get(i);
             check(a.getX() >= 0 && a.getY() >= 0 && a.getX() + a.getWidth() <= screen.width
@@ -369,9 +403,37 @@ public final class ProductionClientScene {
         }
         throw new IllegalStateException("Missing tree folder: " + id);
     }
-    private static void chooseFolder(ProductionPortScreen screen, String selected, String control, int target) throws Exception {
-        for (int i = 0; i < 16 && integer(screen, selected) != target; i++) clickWidget(screen, control);
-        check(integer(screen, selected) == target, "Folder cycle did not reach " + target);
+    private static void checkGridOverview(Screen screen) throws Exception {
+        Button[] inputs = (Button[]) field(screen, "inputGrid"), outputs = (Button[]) field(screen, "outputGrid");
+        check(inputs.length == 9 && outputs.length == 9 && inputs[0].visible && inputs[1].visible && outputs[0].visible,
+                "Native ingredient, fuel and derived product are not visible in the recipe overview");
+    }
+    private static void clickGrid(Screen screen, boolean output, int index) throws Exception {
+        AbstractWidget widget = ((Button[]) field(screen, output ? "outputGrid" : "inputGrid"))[index];
+        check(widget.visible && widget.active, "Unavailable material grid slot: " + output + "/" + index);
+        click(screen, widget.getX() + widget.getWidth() / 2.0, widget.getY() + widget.getHeight() / 2.0, 0);
+    }
+    private static boolean pickMaterial(Screen screen, String query, long id, String shot) throws Exception {
+        if (!(Boolean) field(screen, "pickerOpen")) { clickWidget(screen, "changeMaterial"); return false; }
+        return pick(screen, query, id, shot);
+    }
+    private static boolean pick(Screen screen, String query, long id, String shot) throws Exception {
+        check((Boolean) field(screen, "pickerOpen"), "Expected a searchable selector for " + query);
+        if (!query.equals(pickerQuery)) {
+            replaceText(screen, "search", query); pickerQuery = query; pickerFrame = renderedFrames;
+            if (shot != null) screenshot(shot); return false;
+        }
+        if (renderedFrames <= pickerFrame || shot != null && !captured(shot)) return false;
+        List<?> results = (List<?>) field(screen, "pickerResults"); int offset = (Integer) field(screen, "pickerOffset");
+        Button[] buttons = (Button[]) field(screen, "pickerButtons");
+        for (int i = 0; i < results.size(); i++) if (((Number) field(results.get(i), "id")).longValue() == id) {
+            check(i >= offset && i < offset + buttons.length, "Search did not bring the requested result into view: " + query);
+            Button button = buttons[i - offset]; check(button.visible && button.active, "Search result is not clickable: " + query);
+            click(screen, button.getX() + button.getWidth() / 2.0, button.getY() + button.getHeight() / 2.0, 0);
+            check(!(Boolean) field(screen, "pickerOpen"), "Choosing a result did not dismiss the selector");
+            pickerQuery = null; return true;
+        }
+        throw new IllegalStateException("Search has no matching row for " + query + ": " + id);
     }
     private static void replaceText(Screen screen, String name, String value) throws Exception {
         EditBox box = (EditBox) field(screen, name); String before = box.getValue(); clickWidget(screen, name);
@@ -410,6 +472,7 @@ public final class ProductionClientScene {
     private static void screenshot(String name) { pendingScreenshot = name; completedScreenshot = null; }
     private static boolean captured(String name) { return name.equals(completedScreenshot); }
     private static void advance(int next) { stage = next; stageFrame = renderedFrames; }
+    private static void advanceEditor(int next) { editorStage = next; stageFrame = renderedFrames; }
     private static void check(boolean condition, String message) { if (!condition) throw new IllegalStateException(message); }
     private static void log(String line) throws Exception {
         Files.writeString(root.resolve("report.txt"), line + "\n", StandardCharsets.UTF_8, StandardOpenOption.APPEND);
@@ -418,8 +481,8 @@ public final class ProductionClientScene {
         done = true;
         try {
             StringWriter trace = new StringWriter(); failure.printStackTrace(new PrintWriter(trace));
-            log("FAIL stage=" + stage + " ticks=" + ticks + " " + trace);
-            Files.writeString(root.resolve("result.txt"), "FAIL stage=" + stage + " " + failure + "\n", StandardCharsets.UTF_8);
+            log("FAIL stage=" + stage + " editor=" + editorStage + " ticks=" + ticks + " " + trace);
+            Files.writeString(root.resolve("result.txt"), "FAIL stage=" + stage + " editor=" + editorStage + " " + failure + "\n", StandardCharsets.UTF_8);
             if (mc.player != null) {
                 if (mc.player.containerMenu instanceof ProductionPortMenu menu) log("EDITOR VIEW " + menu.view());
                 else if (mc.player.containerMenu instanceof StorageMenu menu) log("TERMINAL VIEW " + menu.view());

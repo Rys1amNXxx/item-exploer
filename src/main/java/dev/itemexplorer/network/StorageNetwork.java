@@ -9,6 +9,7 @@ import dev.itemexplorer.menu.ProductionPortMenu;
 import dev.itemexplorer.menu.BaseStationMenu;
 import dev.itemexplorer.storage.StorageSearch;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.core.Direction;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
@@ -21,14 +22,16 @@ import net.minecraftforge.network.PacketDistributor;
 import net.minecraftforge.network.simple.SimpleChannel;
 
 import java.util.Optional;
+import java.util.List;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.function.Supplier;
 
 public final class StorageNetwork {
-    // Device indicator properties change the block-state table; reject older peers as well.
-    private static final String VERSION = "18";
+    // The program editor requires persistent save receipts before a queued launch.
+    private static final String VERSION = "20";
     private static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
             new ResourceLocation(ItemExplorer.MOD_ID, "storage"), () -> VERSION, VERSION::equals, VERSION::equals);
 
@@ -271,6 +274,55 @@ public final class StorageNetwork {
     }
 
     public enum ProductionAction { SAVE, START, CANCEL, SELECT_MACHINE, BACK }
+
+    /** Positive IDs refer to inventory entries; negative IDs refer to an existing saved row. */
+    public record PatternRow(int folder, int entry, int count, int face) {
+        public PatternRow(int folder, int entry, int count) { this(folder, entry, count, -1); }
+        public PatternRow {
+            if (folder < 0 || entry == 0 || entry < -9 || count < 1 || count > 9999 || face < -1 || face > 5)
+                throw new IllegalArgumentException("production_invalid_config");
+        }
+    }
+
+    /** No client-supplied ItemStack or NBT is accepted when creating a processing pattern. */
+    public record ProcessingPatternRequest(int menuId, long session, long context, long revision,
+                                           String name, long machinePos, Direction inputFace, Direction outputFace,
+                                           List<PatternRow> inputs, List<PatternRow> outputs) {
+        public ProcessingPatternRequest {
+            Objects.requireNonNull(name); Objects.requireNonNull(inputFace); Objects.requireNonNull(outputFace);
+            if (name.length() > 64 || inputs.isEmpty() || inputs.size() > 9 || outputs.isEmpty() || outputs.size() > 9)
+                throw new IllegalArgumentException("production_invalid_config");
+            inputs = List.copyOf(inputs); outputs = List.copyOf(outputs);
+        }
+        private static List<PatternRow> readRows(FriendlyByteBuf buf) {
+            int length = buf.readVarInt();
+            if (length < 1 || length > 9) throw new IllegalArgumentException("production_invalid_config");
+            List<PatternRow> rows = new ArrayList<>(length);
+            for (int i = 0; i < length; i++) rows.add(new PatternRow(buf.readVarInt(), buf.readVarInt(), buf.readVarInt(), buf.readVarInt()));
+            return rows;
+        }
+        private static void writeRows(FriendlyByteBuf buf, List<PatternRow> rows) {
+            buf.writeVarInt(rows.size());
+            for (PatternRow row : rows) { buf.writeVarInt(row.folder()); buf.writeVarInt(row.entry()); buf.writeVarInt(row.count()); buf.writeVarInt(row.face()); }
+        }
+        public static ProcessingPatternRequest decode(FriendlyByteBuf buf) {
+            return new ProcessingPatternRequest(buf.readVarInt(), buf.readLong(), buf.readLong(), buf.readLong(),
+                    buf.readUtf(64), buf.readLong(), buf.readEnum(Direction.class), buf.readEnum(Direction.class), readRows(buf), readRows(buf));
+        }
+        public void encode(FriendlyByteBuf buf) {
+            buf.writeVarInt(menuId); buf.writeLong(session); buf.writeLong(context); buf.writeLong(revision);
+            buf.writeUtf(name, 64); buf.writeLong(machinePos); buf.writeEnum(inputFace); buf.writeEnum(outputFace);
+            writeRows(buf, inputs); writeRows(buf, outputs);
+        }
+        public void handle(Supplier<NetworkEvent.Context> context) {
+            context.get().enqueueWork(() -> {
+                ServerPlayer player = context.get().getSender();
+                if (player != null && player.containerMenu instanceof ProductionPortMenu menu
+                        && menu.containerId == menuId && menu.stillValid(player)) menu.handle(this);
+            });
+            context.get().setPacketHandled(true);
+        }
+    }
     public record ProductionRequest(int menuId, long session, long context, long revision, ProductionAction action,
                                     String name, int inputFolder, int fuelFolder, int outputFolder,
                                     int inputEntry, int fuelEntry, int count, long machinePos) {
@@ -343,6 +395,8 @@ public final class StorageNetwork {
                 Optional.of(NetworkDirection.PLAY_TO_SERVER));
         CHANNEL.registerMessage(11, StationChunkRequest.class, StationChunkRequest::encode, StationChunkRequest::decode, StationChunkRequest::handle,
                 Optional.of(NetworkDirection.PLAY_TO_SERVER));
+        CHANNEL.registerMessage(12, ProcessingPatternRequest.class, ProcessingPatternRequest::encode, ProcessingPatternRequest::decode, ProcessingPatternRequest::handle,
+                Optional.of(NetworkDirection.PLAY_TO_SERVER));
     }
 
     public static void request(Request request) { CHANNEL.sendToServer(request); }
@@ -350,6 +404,7 @@ public final class StorageNetwork {
     public static void request(PortRequest request) { CHANNEL.sendToServer(request); }
     public static void request(SearchRequest request) { CHANNEL.sendToServer(request); }
     public static void request(ProductionRequest request) { CHANNEL.sendToServer(request); }
+    public static void request(ProcessingPatternRequest request) { CHANNEL.sendToServer(request); }
     public static void request(FileRequest request) { CHANNEL.sendToServer(request); }
     public static void request(TransferRequest request) { CHANNEL.sendToServer(request); }
     public static void request(StationNetworkRequest request) { CHANNEL.sendToServer(request); }
