@@ -378,7 +378,7 @@ public final class ProductionPortScreen extends AbstractContainerScreen<Producti
         if (!editable() || folders.stream().noneMatch(row -> row.id() == folder)) return;
         if (generic()) {
             MaterialRow row = currentMaterial(); if (row == null) return; row.folder = folder;
-            if (!outputTabSelected && row.entry > 0) row.entry = entries.stream().filter(entry -> entry.folder() == folder && ItemStack.isSameItemSameTags(entry.stack(), row.stack)).mapToInt(EntryRow::id).findFirst().orElse(0);
+            if (!outputTabSelected && row.entry >= 0) row.entry = entries.stream().filter(entry -> entry.folder() == folder && ItemStack.isSameItemSameTags(entry.stack(), row.stack)).mapToInt(EntryRow::id).findFirst().orElse(0);
         } else if (outputTabSelected) outputFolder = folder;
         else if (rowIndex == 1) { ItemStack sample = selectedStack(true); fuelFolder = folder; fuelEntry = entries.stream().filter(entry -> entry.folder() == folder && entry.fuel() && ItemStack.isSameItemSameTags(entry.stack(), sample)).mapToInt(EntryRow::id).findFirst().orElse(0); }
         else { ItemStack sample = selectedStack(false); inputFolder = folder; inputEntry = entries.stream().filter(entry -> entry.folder() == folder && entry.smeltable() && ItemStack.isSameItemSameTags(entry.stack(), sample)).mapToInt(EntryRow::id).findFirst().orElse(0); }

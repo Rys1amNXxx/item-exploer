@@ -248,6 +248,31 @@ public final class GenericProductionTests {
     }
 
     @GameTest(template = "empty")
+    public static void sharedInsertionBudgetAcrossFacesKeepsOriginalMaterialOrder(GameTestHelper h) {
+        Fixture f = fixture(h); f.machine.splitInputs = true;
+        ProcessingPattern pattern = new ProcessingPattern(Direction.UP, Direction.DOWN,
+                List.of(new Material(f.sand, new ItemStack(Items.SAND, 2), Direction.UP),
+                        new Material(f.iron, new ItemStack(Items.IRON_INGOT, 3), Direction.NORTH)), f.pattern().outputs());
+        f.terminal.programs().configure(f.file, f.port.createProcessingDefinition("多面限量投料", pattern),
+                f.port.getBlockPos(), f.port.identity());
+        f.machine.acceptanceBudget = 1; launch(f, 1);
+        accepted(h, f, 1, 0);
+        h.assertTrue(f.machine.inputs.getStackInSlot(0).getCount() == 1 && f.machine.inputs.getStackInSlot(1).isEmpty(),
+                "A later material row consumed the shared insertion budget before the first row");
+        var reserved = f.storage().save();
+        service(f); accepted(h, f, 1, 0);
+        h.assertTrue(reserved.equals(f.storage().save()) && f.port.runtimeView().getInt("Completed") == 0,
+                "Blocked sided-handler retries withdrew another batch or advanced completion");
+        f.machine.acceptanceBudget = 20; service(f); accepted(h, f, 2, 3);
+        f.machine.consumeInputs(); f.machine.produce(3, 2); service(f);
+        h.assertTrue(count(f.storage(), f.sand, Items.SAND) == 6 && count(f.storage(), f.iron, Items.IRON_INGOT) == 9
+                && count(f.storage(), f.glass, Items.GLASS) == 3 && count(f.storage(), f.nuggets, Items.IRON_NUGGET) == 2
+                && f.port.runtimeView().getInt("Completed") == 1,
+                "Restoring the shared sided-handler budget lost or duplicated batch materials");
+        status(h, f, "production_complete"); h.succeed();
+    }
+
+    @GameTest(template = "empty")
     public static void cancellationReturnsOnlyUninsertedMaterials(GameTestHelper h) {
         Fixture f = fixture(h); f.machine.acceptanceBudget = 1; launch(f, 1);
         TerminalPrograms.cancel(f.terminal, f.terminal.programs().file(f.file)); service(f);
@@ -477,6 +502,181 @@ public final class GenericProductionTests {
                 "Repeated ingredients overbooked shared slot capacity");
         h.assertTrue(ProcessingBatch.canInsertBatch(machine, List.of(new ItemStack(Items.SAND, 30), new ItemStack(Items.SAND, 34)))
                 && machine.getStackInSlot(0).isEmpty(), "Exact shared-slot capacity should simulate without mutation");
+        h.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void flexibleAndRestrictedSlotsAcceptEitherMaterialRowOrder(GameTestHelper h) {
+        for (boolean flexibleFirst : List.of(true, false)) {
+            var machine = new ItemStackHandler(2) {
+                @Override public int getSlotLimit(int slot) { return 1; }
+                @Override public boolean isItemValid(int slot, ItemStack stack) {
+                    return stack.is(Items.SAND) || (slot == 0 && stack.is(Items.IRON_INGOT));
+                }
+            };
+            List<Material> materials = flexibleFirst
+                    ? List.of(material(0, Items.SAND, 1), material(0, Items.IRON_INGOT, 1))
+                    : List.of(material(0, Items.IRON_INGOT, 1), material(0, Items.SAND, 1));
+            var inventory = storage();
+            inventory.insert(new ItemStack(Items.SAND), 1, 0);
+            inventory.insert(new ItemStack(Items.IRON_INGOT), 1, 0);
+            var before = inventory.save();
+            var pattern = new ProcessingPattern(Direction.UP, Direction.DOWN, materials,
+                    List.of(material(0, Items.GLASS, 1)));
+            var batch = new ProcessingBatch(pattern, () -> {});
+
+            h.assertTrue(ProcessingBatch.canInsertBatch(machine, materials.stream().map(Material::stack).toList())
+                    && ProcessingBatch.empty(machine) && before.equals(inventory.save()),
+                    "A valid mixed-slot allocation was rejected or simulation mutated inventories: " + flexibleFirst);
+            batch.reserve(inventory, machine);
+            h.assertTrue(batch.staged() && batch.hasOwned() && inventory.total() == 0 && ProcessingBatch.empty(machine),
+                    "Reservation did not retain the complete batch before inserting it");
+            batch.insert(machine);
+            h.assertTrue(batch.sentAll() && !batch.hasOwned()
+                    && machine.getStackInSlot(0).is(Items.IRON_INGOT) && machine.getStackInSlot(0).getCount() == 1
+                    && machine.getStackInSlot(1).is(Items.SAND) && machine.getStackInSlot(1).getCount() == 1,
+                    "Real insertion did not preserve the feasible mixed-slot allocation: " + flexibleFirst);
+            CompoundTag inserted = batch.save();
+            batch.insert(machine);
+            batch.returnOwned(inventory);
+            h.assertTrue(inserted.equals(batch.save()) && inventory.total() == 0,
+                    "Repeating insertion or cancellation duplicated an already inserted mixed-slot ingredient");
+        }
+        h.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void equalCandidateCountsCanReassignAnEarlierSlotChoice(GameTestHelper h) {
+        var machine = new ItemStackHandler(4) {
+            @Override public int getSlotLimit(int slot) { return 1; }
+            @Override public boolean isItemValid(int slot, ItemStack stack) {
+                return switch (slot) {
+                    case 0 -> stack.is(Items.SAND) || stack.is(Items.GOLD_INGOT);
+                    case 1 -> stack.is(Items.SAND) || stack.is(Items.IRON_INGOT);
+                    default -> stack.is(Items.GOLD_INGOT) || stack.is(Items.DIAMOND);
+                };
+            }
+        };
+        // Every slot accepts two material types. Taking the first row's gold for slot 0
+        // strands iron; a successful assignment must move gold to slot 2 or 3.
+        List<Material> materials = List.of(material(0, Items.GOLD_INGOT, 1), material(0, Items.SAND, 1),
+                material(0, Items.IRON_INGOT, 1), material(0, Items.DIAMOND, 1));
+        var inventory = storage();
+        for (Material material : materials) inventory.insert(material.stack(), 1, 0);
+        var pattern = new ProcessingPattern(Direction.UP, Direction.DOWN, materials, List.of(material(0, Items.GLASS, 1)));
+        var batch = new ProcessingBatch(pattern, () -> {});
+
+        h.assertTrue(ProcessingBatch.canInsertBatch(machine, materials.stream().map(Material::stack).toList())
+                && ProcessingBatch.empty(machine), "A feasible assignment requiring reassignment was rejected");
+        batch.reserve(inventory, machine);
+        batch.insert(machine);
+        ItemStack first = machine.getStackInSlot(0), second = machine.getStackInSlot(1);
+        ItemStack third = machine.getStackInSlot(2), fourth = machine.getStackInSlot(3);
+        h.assertTrue(batch.sentAll() && !batch.hasOwned() && inventory.total() == 0
+                && first.is(Items.SAND) && second.is(Items.IRON_INGOT)
+                && first.getCount() == 1 && second.getCount() == 1 && third.getCount() == 1 && fourth.getCount() == 1
+                && ((third.is(Items.GOLD_INGOT) && fourth.is(Items.DIAMOND))
+                    || (third.is(Items.DIAMOND) && fourth.is(Items.GOLD_INGOT))),
+                "Equal candidate counts left a feasible ingredient stranded or changed the batch totals");
+        h.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void everyThreeByThreeSlotAcceptanceMatrixMatchesAnIndependentAssignmentOracle(GameTestHelper h) {
+        List<Item> types = List.of(Items.SAND, Items.IRON_INGOT, Items.GOLD_INGOT);
+        List<Material> materials = types.stream().map(item -> material(0, item, 1)).toList();
+        List<ItemStack> offered = materials.stream().map(Material::stack).toList();
+        int[][] assignments = {{0, 1, 2}, {0, 2, 1}, {1, 0, 2}, {1, 2, 0}, {2, 0, 1}, {2, 1, 0}};
+        var pattern = new ProcessingPattern(Direction.UP, Direction.DOWN, materials, List.of(material(0, Items.GLASS, 1)));
+        for (int mask = 0; mask < 512; mask++) {
+            final int acceptance = mask;
+            var machine = new ItemStackHandler(3) {
+                @Override public int getSlotLimit(int slot) { return 1; }
+                @Override public boolean isItemValid(int slot, ItemStack stack) {
+                    int material = types.indexOf(stack.getItem());
+                    return material >= 0 && (acceptance & (1 << (material * 3 + slot))) != 0;
+                }
+            };
+            boolean possible = false;
+            for (int[] assignment : assignments) {
+                boolean valid = true;
+                for (int material = 0; material < 3; material++)
+                    valid &= (acceptance & (1 << (material * 3 + assignment[material]))) != 0;
+                possible |= valid;
+            }
+            h.assertTrue(ProcessingBatch.canInsertBatch(machine, offered) == possible && ProcessingBatch.empty(machine),
+                    "Slot feasibility differs from the six-permutation oracle or simulation mutated matrix " + mask);
+            if (!possible) continue;
+
+            var inventory = storage();
+            for (Material material : materials) inventory.insert(material.stack(), 1, 0);
+            var batch = new ProcessingBatch(pattern, () -> {});
+            batch.reserve(inventory, machine);
+            batch.insert(machine);
+            int[] counts = new int[types.size()];
+            for (int slot = 0; slot < machine.getSlots(); slot++) {
+                ItemStack actual = machine.getStackInSlot(slot);
+                int material = types.indexOf(actual.getItem());
+                h.assertTrue(material >= 0 && actual.getCount() == 1 && machine.isItemValid(slot, actual),
+                        "Real insertion chose an invalid slot or quantity for matrix " + mask);
+                counts[material] += actual.getCount();
+            }
+            h.assertTrue(batch.sentAll() && !batch.hasOwned() && inventory.total() == 0
+                    && counts[0] == 1 && counts[1] == 1 && counts[2] == 1,
+                    "A feasible matrix stranded an ingredient or changed total material counts: " + mask);
+            CompoundTag inserted = batch.save(), machineContents = machine.serializeNBT();
+            batch.insert(machine);
+            batch.returnOwned(inventory);
+            h.assertTrue(inserted.equals(batch.save()) && machineContents.equals(machine.serializeNBT()) && inventory.total() == 0,
+                    "A repeated service pass duplicated or refunded committed ingredients for matrix " + mask);
+        }
+        h.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void aliasedSidedSlotsKeepFeedingPartialCapacityUntilTheBatchCompletes(GameTestHelper h) {
+        var input = new ItemStackHandler(1);
+        var output = new ItemStackHandler(1);
+        java.util.Map<Direction, IItemHandler> handlers = java.util.Map.of(
+                Direction.UP, new RangedWrapper(input, 0, 1),
+                Direction.NORTH, new RangedWrapper(input, 0, 1),
+                Direction.SOUTH, new RangedWrapper(input, 0, 1),
+                Direction.DOWN, output);
+        var pattern = new ProcessingPattern(Direction.UP, Direction.DOWN,
+                List.of(new Material(0, new ItemStack(Items.SAND, 64), Direction.UP),
+                        new Material(0, new ItemStack(Items.SAND, 64), Direction.NORTH),
+                        new Material(0, new ItemStack(Items.SAND, 64), Direction.SOUTH)),
+                List.of(material(0, Items.GLASS, 64)));
+        var inventory = storage();
+        for (int row = 0; row < 3; row++) inventory.insert(new ItemStack(Items.SAND, 64), 64, 0);
+        var batch = new ProcessingBatch(pattern, () -> {});
+        batch.reserve(inventory, handlers::get);
+        h.assertTrue(batch.staged() && inventory.total() == 0 && input.getStackInSlot(0).isEmpty(),
+                "Distinct sided wrappers should reserve their materials without inserting them");
+
+        int consumed = 0;
+        for (int pass = 0; pass < 16 && !batch.complete(); pass++) {
+            batch.insert(handlers::get);
+            if (pass < 2) h.assertTrue(input.getStackInSlot(0).getCount() == 64,
+                    "The shared slot was not filled despite having partial capacity on pass " + pass);
+            // This machine consumes three sand per operation. A full slot leaves one sand,
+            // so the next service pass must accept 63 of a still-buffered 64-item row.
+            int amount = input.getStackInSlot(0).getCount() / 3 * 3;
+            ItemStack taken = input.extractItem(0, amount, false);
+            h.assertTrue(taken.getCount() == amount && (taken.isEmpty() || taken.is(Items.SAND)),
+                    "The fixture consumed material that was not actually present");
+            consumed += taken.getCount();
+            if (amount > 0) h.assertTrue(output.insertItem(0, new ItemStack(Items.GLASS, amount / 3), false).isEmpty(),
+                    "The fixture could not store its actual product");
+            batch.collect(handlers::get);
+            batch.deliver(inventory);
+            h.assertTrue(count(inventory, 0, Items.SAND) == 0 && count(inventory, 0, Items.GLASS) == consumed / 3,
+                    "Aliased-face retries withdrew extra material or changed delivered product counts");
+        }
+        h.assertTrue(batch.complete() && batch.sentAll() && !batch.hasOwned() && consumed == 192
+                && count(inventory, 0, Items.GLASS) == 64 && inventory.total() == 64
+                && input.getStackInSlot(0).isEmpty() && output.getStackInSlot(0).isEmpty(),
+                "Aliased sided inventories deadlocked on partial space or failed the 192-to-64 material balance");
         h.succeed();
     }
 

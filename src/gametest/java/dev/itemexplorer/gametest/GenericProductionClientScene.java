@@ -173,6 +173,22 @@ public final class GenericProductionClientScene {
             case 24 -> {
                 checkGridOverview(screen); validateGeometry(screen);
                 check(button(screen, "save").active && button(screen, "runAction").active, "Complete draft must enable Save and Save-and-trial");
+                clickGrid(screen, false, 0); checkSandBinding(screen, sandFolder, sandEntry);
+                clickWidget(screen, "materialFolder"); advance(104);
+            }
+            case 104 -> { if (pick(screen, "铁料", ironFolder, null)) advance(105); }
+            case 105 -> {
+                checkSandBinding(screen, ironFolder, 0);
+                check(!button(screen, "save").active && !button(screen, "runAction").active,
+                        "An unsaved input without a matching sample in its folder must disable Save and Run");
+                clickWidget(screen, "materialFolder"); advance(106);
+            }
+            case 106 -> { if (pick(screen, "砂料", sandFolder, null)) advance(107); }
+            case 107 -> {
+                checkSandBinding(screen, sandFolder, sandEntry);
+                check(button(screen, "save").active && button(screen, "runAction").active,
+                        "Returning an unsaved input to its sample folder did not restore Save and Run");
+                log("PASS unsaved input folder A -> B without sample -> A rebinds the original item and restores Save/Run");
                 screenshot("generic-minimum-recipe.png"); advance(25);
             }
             case 25 -> {
@@ -198,7 +214,23 @@ public final class GenericProductionClientScene {
                 verifyPattern(ProcessingPattern.load(view.getCompound("Pattern")), 2);
                 check(!view.getBoolean("Running"), "Save alone started a job");
                 log("PASS searchable machine/item/folder selection; simultaneous 3x3 input/output overview; multi-face saved pattern");
-                clickGrid(screen, false, 0); advance(29);
+                clickGrid(screen, false, 0); checkSandBinding(screen, sandFolder, -1);
+                clickWidget(screen, "materialFolder"); advance(108);
+            }
+            case 108 -> { if (pick(screen, "铁料", ironFolder, null)) advance(109); }
+            case 109 -> {
+                checkSandBinding(screen, ironFolder, -1);
+                check(button(screen, "save").active && button(screen, "runAction").active,
+                        "A saved input sample must remain usable when its new source folder has no stock");
+                clickWidget(screen, "materialFolder"); advance(110);
+            }
+            case 110 -> { if (pick(screen, "砂料", sandFolder, null)) advance(111); }
+            case 111 -> {
+                checkSandBinding(screen, sandFolder, -1);
+                check(button(screen, "save").active && button(screen, "runAction").active,
+                        "Changing a saved input folder discarded its server-owned sample reference");
+                log("PASS saved negative input references survive folder changes without requiring stock");
+                advance(29);
             }
             case 29 -> { replaceText(screen, "amount", "4"); advance(30); }
             case 30 -> {
@@ -291,6 +323,14 @@ public final class GenericProductionClientScene {
         check(pattern.outputs().get(1).folder() == nuggetFolder && pattern.outputs().get(1).stack().is(Items.IRON_NUGGET)
                 && pattern.outputs().get(1).stack().getCount() == 2, "Byproduct row changed");
         check(pattern.inputFace() == Direction.UP && pattern.outputFace() == Direction.DOWN, "Default machine faces changed");
+    }
+    private static void checkSandBinding(ProductionPortScreen screen, int folder, int entry) throws Exception {
+        Object row = ((List<?>) field(screen, "patternInputs")).get(0);
+        check((Integer) field(row, "folder") == folder && (Integer) field(row, "entry") == entry,
+                "Sand input folder/reference changed unexpectedly: expected " + folder + "/" + entry);
+        check(ItemStack.isSameItemSameTags((ItemStack) field(row, "stack"), new ItemStack(Items.SAND))
+                        && (Integer) field(row, "amount") == 2,
+                "Changing an input folder replaced the selected item or its quantity");
     }
     private static void verifyServer(Minecraft mc) {
         verifyQueued = true; mc.getSingleplayerServer().execute(() -> {

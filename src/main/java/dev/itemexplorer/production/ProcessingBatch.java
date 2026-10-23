@@ -10,6 +10,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.items.IItemHandler;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.IdentityHashMap;
 import java.util.Map;
@@ -37,37 +38,9 @@ public final class ProcessingBatch {
         return true;
     }
 
-    /** Reserve shared slot capacity across every row. Independent simulate calls would overbook empty slots. */
+    /** Find a shared slot allocation for all rows without changing any real inventory. */
     public static boolean canInsertBatch(IItemHandler handler, List<ItemStack> materials) {
-        if (handler == null) return false;
-        int slots = handler.getSlots();
-        if (slots < 1 || slots > ItemHandlerAccess.MAX_SLOTS) return false;
-        ItemStack[] shadow = new ItemStack[slots]; int[] added = new int[slots];
-        for (int slot = 0; slot < slots; slot++) shadow[slot] = handler.getStackInSlot(slot).copy();
-        for (ItemStack material : materials) {
-            int remaining = material.getCount();
-            for (int slot = 0; slot < slots && remaining > 0; slot++) {
-                if (!shadow[slot].isEmpty() && !ProcessingPattern.matches(shadow[slot], material)) continue;
-                int room = Math.min(handler.getSlotLimit(slot), material.getMaxStackSize()) - shadow[slot].getCount();
-                if (room <= 0) continue;
-                int requested = Math.min(material.getMaxStackSize(), remaining + added[slot]);
-                ItemStack offered = material.copyWithCount(requested);
-                ItemStack remainder = handler.insertItem(slot, offered.copy(), true);
-                int accepted = accepted(offered, remainder);
-                int amount = Math.min(remaining, Math.min(room, Math.max(0, accepted - added[slot])));
-                if (amount == 0) continue;
-                shadow[slot] = material.copyWithCount(shadow[slot].getCount() + amount);
-                added[slot] += amount; remaining -= amount;
-            }
-            if (remaining != 0) return false;
-        }
-        return true;
-    }
-
-    private static int accepted(ItemStack offered, ItemStack remainder) {
-        if (!remainder.isEmpty() && (!ProcessingPattern.matches(offered, remainder) || remainder.getCount() > offered.getCount()))
-            throw new IllegalArgumentException("production_interference");
-        return offered.getCount() - remainder.getCount();
+        return BatchInsertionPlan.find(handler, materials) != null;
     }
 
     private static StorageInventory.Entry find(StorageInventory inventory, ProcessingPattern.Material material) {
@@ -148,15 +121,31 @@ public final class ProcessingBatch {
 
     public void insert(Function<Direction, IItemHandler> handlers) {
         if (!staged()) return;
+        record Insertion(IItemHandler handler, int row, int slot, int count) {}
+        List<Insertion> insertions = new ArrayList<>();
+        Map<IItemHandler, List<Integer>> rowsByHandler = new IdentityHashMap<>();
         for (int row = 0; row < inputs.size(); row++) {
+            if (inputs.get(row).isEmpty()) continue;
             IItemHandler handler = handlers.apply(pattern.inputFace(pattern.inputs().get(row)));
-            for (int slot = 0; slot < handler.getSlots() && !inputs.get(row).isEmpty(); slot++) {
-                ItemStack offered = inputs.get(row).copy();
-                ItemStack remainder = handler.insertItem(slot, offered.copy(), false);
-                int amount = accepted(offered, remainder);
-                if (amount > 0) {
-                    inputs.set(row, remainder.copy()); sent[row] += amount; changed.run();
-                }
+            rowsByHandler.computeIfAbsent(handler, unused -> new ArrayList<>()).add(row);
+        }
+        for (var group : rowsByHandler.entrySet()) {
+            List<Integer> rows = group.getValue();
+            BatchInsertionPlan plan = BatchInsertionPlan.find(group.getKey(), rows.stream().map(inputs::get).toList(), true);
+            if (plan == null) continue;
+            for (var move : plan.moves())
+                insertions.add(new Insertion(group.getKey(), rows.get(move.row()), move.slot(), move.count()));
+        }
+        // Slot search order must not change material priority when a machine shares a
+        // real transfer budget across slots or sided handlers.
+        insertions.sort(Comparator.comparingInt(Insertion::row).thenComparingInt(Insertion::slot));
+        for (Insertion insertion : insertions) {
+            int row = insertion.row();
+            ItemStack offered = inputs.get(row).copyWithCount(insertion.count());
+            ItemStack remainder = insertion.handler().insertItem(insertion.slot(), offered.copy(), false);
+            int amount = BatchInsertionPlan.accepted(offered, remainder);
+            if (amount > 0) {
+                reduce(inputs, row, amount); sent[row] += amount; changed.run();
             }
         }
     }
