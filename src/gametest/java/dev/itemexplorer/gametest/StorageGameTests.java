@@ -217,6 +217,14 @@ public final class StorageGameTests {
             helper.assertTrue(layout.pageSize() >= 6 && layout.pageSize() <= StorageInventory.MAX_PAGE_SIZE, "Unsupported page size");
             helper.assertTrue(layout.browserY() + layout.rows() * 30 < layout.controlsY()
                     && layout.inventoryY() + 58 + 16 < layout.height(), "Browser or inventory overlaps another region");
+            int slotLeft = layout.compactX() - 1, slotTop = layout.compactY() - 1;
+            helper.assertTrue(layout.compactPageSize() > layout.pageSize() && layout.compactPageSize() <= StorageInventory.MAX_PAGE_SIZE,
+                    "Compact grid should hold more than cards within the server page budget");
+            helper.assertTrue(slotLeft >= layout.browserX() && slotTop >= layout.browserY()
+                    && slotLeft + layout.compactColumns() * StorageLayout.SLOT <= layout.browserX() + layout.browserWidth()
+                    && slotTop + layout.compactRows() * StorageLayout.SLOT <= layout.browserY() + layout.browserHeight(),
+                    "Compact grid leaves the browser");
+            helper.assertTrue(layout.viewToggleX() + 14 < layout.defaultVolumeX(), "View toggle overlaps the default-volume button");
             clientMenu.arrangeClientSlots(layout.inventoryX(), layout.inventoryY());
             for (int i = 0; i < 36; i++) {
                 var slot = clientMenu.slots.get(i);
@@ -230,6 +238,8 @@ public final class StorageGameTests {
         clientMenu.slots.get(27).remove(1);
         helper.assertTrue(inventory.getItem(9).getCount() == 9 && inventory.getItem(0).isEmpty(), "Reflowed slots modify the wrong inventory positions");
         helper.assertTrue(StorageLayout.fit(720, 415).pageSize() == 25, "Large viewport should expose 25 tiles");
+        helper.assertTrue(StorageLayout.fit(320, 240).compactPageSize() == 33 && StorageLayout.fit(480, 270).compactPageSize() == 68
+                && StorageLayout.fit(720, 415).compactPageSize() == 85, "Compact grid sizes changed");
         helper.succeed();
     }
 

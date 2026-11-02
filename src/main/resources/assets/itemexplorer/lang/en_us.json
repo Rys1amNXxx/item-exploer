@@ -34,6 +34,8 @@
   "gui.itemexplorer.choose_target": "Choose a folder; Esc to cancel",
   "gui.itemexplorer.crafting": "Crafting",
   "gui.itemexplorer.sort_hint": "Middle-click: merge matching items and sort this folder",
+  "gui.itemexplorer.view_compact_hint": "Compact grid: icons only, more items per page",
+  "gui.itemexplorer.view_cards_hint": "Card view: show item names",
   "message.itemexplorer.created": "Folder created",
   "message.itemexplorer.renamed": "Name changed",
   "message.itemexplorer.deleted": "Empty folder deleted",

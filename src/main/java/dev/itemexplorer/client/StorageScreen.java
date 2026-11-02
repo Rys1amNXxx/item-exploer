@@ -48,7 +48,9 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
     private StorageLayout layout;
     private EditBox quantity, folderName, searchQuery;
     private Button create, rename, delete, up, previous, next, withdraw, move, all, deposit, modalOk, modalCancel;
-    private Button searchOpen, searchScope, searchExit, modalKind, remoteOpen, defaultVolume;
+    private Button searchOpen, searchScope, searchExit, modalKind, remoteOpen, defaultVolume, viewToggle;
+    /** Icon-only slot grid; search results keep their labelled rows either way. */
+    private boolean compactGrid = TerminalClientConfig.compactGrid();
     private boolean searching, searchRecursive, catalogLoading, applyingSearch, awaitingSearchExit;
     private CompoundTag searchTransitionView;
     private long searchSession, querySeq, catalogRevision = -1, pendingCatalogRevision = -1, searchChangedAt;
@@ -126,6 +128,11 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
         defaultVolume = addRenderableWidget(Button.builder(label("set_default_volume"),
                 b -> send(Action.SET_DEFAULT_VOLUME, 0, 0, 0, menu.view().getString("Volume")))
                 .bounds(leftPos + layout.defaultVolumeX(), topPos + 43, 80, 14).build());
+        // The icon is painted in render(); an empty message keeps the 14px button from clipping text.
+        viewToggle = addRenderableWidget(Button.builder(Component.empty(), b -> {
+            compactGrid = !compactGrid; TerminalClientConfig.setCompactGrid(compactGrid);
+            dragging = false; dragCandidate = -1;
+        }).bounds(leftPos + layout.viewToggleX(), topPos + 43, 14, 14).build());
         searchQuery = addRenderableWidget(new EditBox(font, leftPos + 8, topPos + 24,
                 layout.searchWidth(), 16, label("search_query")));
         searchQuery.setMaxLength(StorageSearch.MAX_QUERY);
@@ -243,7 +250,7 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
 
     private void updateSearchWidgets() {
         create.visible = rename.visible = delete.visible = up.visible = searchOpen.visible = !searching;
-        defaultVolume.visible = !searching;
+        defaultVolume.visible = viewToggle.visible = !searching;
         searchQuery.visible = searchScope.visible = searchExit.visible = searching;
         searchScope.setMessage(label(searchRecursive ? "search_tree" : "search_drive"));
         searchScope.setTooltip(Tooltip.create(label(searchRecursive ? "search_tree_hint" : "search_drive_hint")));
@@ -507,7 +514,7 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
         }
         Collections.reverse(chain);
         boolean shortened = false;
-        int available = layout.defaultVolumeX() - 12;
+        int available = layout.viewToggleX() - 12;
         while (chain.size() > 2 && crumbWidth(chain) + (shortened ? 24 : 0) > available) {
             chain.remove(1); shortened = true;
         }
@@ -518,7 +525,7 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
             if (i == 1 && shortened) {
                 result.add(new Crumb(-1, "...", "...", x, 18)); x += 30;
             }
-            String display = fit(f.name, Math.min(90, layout.defaultVolumeX() - 4 - x));
+            String display = fit(f.name, Math.min(90, layout.viewToggleX() - 4 - x));
             int w = font.width(display);
             result.add(new Crumb(f.id, f.name, display, x, w)); x += w + 12;
         }
@@ -548,6 +555,12 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
         if (searching) {
             if (!inside(x, y, layout.browserX(), layout.browserY(), layout.browserWidth(), layout.searchRows() * 30)) return null;
             int index = ((int) y - topPos - layout.browserY()) / 30;
+            return index < tiles.size() ? tiles.get(index) : null;
+        }
+        if (compactGrid) {
+            int size = StorageLayout.SLOT, left = layout.compactX() - 1, top = layout.compactY() - 1;
+            if (!inside(x, y, left, top, layout.compactColumns() * size, layout.compactRows() * size)) return null;
+            int index = ((int) y - topPos - top) / size * layout.compactColumns() + ((int) x - leftPos - left) / size;
             return index < tiles.size() ? tiles.get(index) : null;
         }
         if (!inside(x, y, layout.browserX(), layout.browserY(), layout.columns() * layout.cellWidth(), layout.rows() * 30)) return null;
@@ -619,7 +632,7 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
         if (awaitingVolume && Util.getMillis() - volumeRequestedAt > 3000) {
             awaitingVolume = false; error = "stale"; errorUntil = Util.getMillis() + 4500;
         }
-        int desiredPageSize = searching ? layout.searchRows() : layout.pageSize();
+        int desiredPageSize = searching ? layout.searchRows() : pageCapacity();
         if (menu.view().contains("Revision") && (searching ? searchReady() : !menu.view().getBoolean("Searching"))
                 && menu.view().getInt("PageSize") != desiredPageSize
                 && (requestedPageSize != desiredPageSize || Util.getMillis() - resizeRequestedAt > 1000)) {
@@ -647,6 +660,8 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
         defaultVolume.setTooltip(Tooltip.create(label(portable()
                 ? isDefaultVolume ? "portable_default_volume_hint" : "portable_set_default_volume_hint"
                 : isDefaultVolume ? "default_volume_hint" : "set_default_volume_hint")));
+        viewToggle.active = !modal && !dragging;
+        viewToggle.setTooltip(Tooltip.create(label(compactGrid ? "view_cards_hint" : "view_compact_hint")));
         remoteOpen.visible = !portable();
         remoteOpen.active = !modal && !searching && !awaitingVolume && !awaitingSearchExit
                 && menu.view().contains("Session");
@@ -670,6 +685,7 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
         move.setTooltip(!searching && choosingTarget ? Tooltip.create(label("choose_target")) : null);
         renderBackground(g);
         super.render(g, mouseX, mouseY, partialTick);
+        if (viewToggle.visible) viewToggleIcon(g);
         if (modal) {
             g.pose().pushPose(); g.pose().translate(0, 0, 300);
             g.fill(leftPos, topPos, leftPos + imageWidth, topPos + imageHeight, 0x88000000);
@@ -862,6 +878,24 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
             recessText(g, Component.literal(count), x + w - countWidth - 4, y + 4, countWidth, RECESS_TEXT, overlay);
             recessText(g, Component.literal(entryPath(entry)), x + 24, y + 18, w - 28, RECESS_MUTED, overlay);
         }
+        else if (compactGrid) for (int i = 0; i < tiles.size() && i < layout.compactPageSize(); i++) {
+            Tile tile = tiles.get(i);
+            int x = layout.compactX() + (i % layout.compactColumns()) * StorageLayout.SLOT;
+            int y = layout.compactY() + (i / layout.compactColumns()) * StorageLayout.SLOT;
+            boolean active = tile.entry != null && tile.entry.id == selected || tile.program != null && tile.program.id == selectedProgram;
+            VanillaGui.slot(g, leftPos + x, topPos + y);
+            int color = active ? 0x66ffffff : hoveredTile == tile ? 0x80ffffff : 0;
+            if (tile.folder != null && hoveredTile == tile && (dragging || choosingTarget)) color = 0x664bbd57;
+            if (color != 0) g.fill(leftPos + x, topPos + y, leftPos + x + 16, topPos + y + 16, color);
+            if (active) g.renderOutline(leftPos + x - 1, topPos + y - 1, 18, 18, 0xffffffff);
+            if (tile.folder != null) folderIcon(g, x, y + 2, false);
+            else if (tile.program != null) programIcon(g, x, y + 1, tile.program.active);
+            else {
+                g.renderItem(tile.entry.stack, leftPos + x, topPos + y);
+                g.renderItemDecorations(font, tile.entry.stack, leftPos + x, topPos + y,
+                        tile.entry.count == 1 ? "" : slotCount(tile.entry.count));
+            }
+        }
         else for (int i = 0; i < tiles.size() && i < layout.pageSize(); i++) {
             Tile tile = tiles.get(i);
             int x = layout.browserX() + (i % layout.columns()) * layout.cellWidth();
@@ -972,6 +1006,29 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
             setFocused(searchQuery); searchQuery.setFocused(true); quantity.setFocused(false);
         }
         return handled;
+    }
+
+    private int pageCapacity() { return compactGrid ? layout.compactPageSize() : layout.pageSize(); }
+
+    /** Shows the view a click switches to: a dot grid for compact, stacked bars for labelled cards. */
+    private void viewToggleIcon(GuiGraphics g) {
+        int left = viewToggle.getX() + 3, top = viewToggle.getY() + 3;
+        int color = viewToggle.active ? 0xffe0e0e0 : 0xffa0a0a0;
+        if (compactGrid) for (int row = 0; row < 3; row++) g.fill(left, top + row * 3, left + 8, top + row * 3 + 2, color);
+        else for (int i = 0; i < 9; i++) {
+            int x = left + i % 3 * 3, y = top + i / 3 * 3;
+            g.fill(x, y, x + 2, y + 2, color);
+        }
+    }
+
+    /** At most four characters, so a slot count overhangs the icon by one glyph at worst. */
+    private static String slotCount(long count) {
+        if (count < 1000) return Long.toString(count);
+        String units = "KMGTPE"; double value = count; int unit = -1;
+        while (value >= 1000 && unit < units.length() - 1) { value /= 1000; unit++; }
+        String number = value < 10 ? String.format(java.util.Locale.ROOT, "%.1f", Math.floor(value * 10) / 10)
+                : Long.toString((long) value);
+        return number + units.charAt(unit);
     }
 
     private static String compact(long count) {

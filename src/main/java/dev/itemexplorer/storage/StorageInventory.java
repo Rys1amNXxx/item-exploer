@@ -32,7 +32,8 @@ public final class StorageInventory implements StorageAccess {
     public static final int MAX_DEPTH = 8;
     public static final int MAX_ITEM_BYTES = 8192;
     public static final int PAGE_SIZE = 6;
-    public static final int MAX_PAGE_SIZE = 30;
+    /** 96 samples at MAX_ITEM_BYTES stay under the 1 MiB clientbound payload limit. */
+    public static final int MAX_PAGE_SIZE = 96;
 
     public record Folder(int id, int parent, String name) {}
     public record Entry(int id, int folder, ItemStack stack, long count) {}

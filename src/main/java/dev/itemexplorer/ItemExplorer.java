@@ -1,6 +1,7 @@
 package dev.itemexplorer;
 
 import com.mojang.logging.LogUtils;
+import dev.itemexplorer.client.TerminalClientConfig;
 import dev.itemexplorer.network.StorageNetwork;
 import dev.itemexplorer.station.StationChunkLoading;
 import dev.itemexplorer.station.StationChunkLoadingConfig;
@@ -25,6 +26,7 @@ public final class ItemExplorer {
         ModSounds.register(context.getModEventBus());
         StorageNetwork.register();
         ModLoadingContext.get().registerConfig(ModConfig.Type.SERVER, StationChunkLoadingConfig.SPEC);
+        ModLoadingContext.get().registerConfig(ModConfig.Type.CLIENT, TerminalClientConfig.SPEC);
         context.getModEventBus().addListener(this::commonSetup);
     }
 

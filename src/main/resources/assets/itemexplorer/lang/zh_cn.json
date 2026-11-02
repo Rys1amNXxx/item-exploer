@@ -34,6 +34,8 @@
   "gui.itemexplorer.choose_target": "选择目标文件夹 · Esc 取消",
   "gui.itemexplorer.crafting": "工作台",
   "gui.itemexplorer.sort_hint": "中键：合并同类物品并排序当前目录",
+  "gui.itemexplorer.view_compact_hint": "切换为紧凑网格：只显示图标，每页放下更多物品",
+  "gui.itemexplorer.view_cards_hint": "切换为卡片视图：显示物品名称",
   "message.itemexplorer.created": "文件夹已创建",
   "message.itemexplorer.renamed": "名称已修改",
   "message.itemexplorer.deleted": "空文件夹已删除",
