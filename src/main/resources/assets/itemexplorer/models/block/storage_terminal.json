@@ -6,6 +6,7 @@
     "side": "itemexplorer:block/storage_terminal/side",
     "top": "itemexplorer:block/storage_terminal/top",
     "bottom": "itemexplorer:block/storage_terminal/bottom",
+    "screen": "#front",
     "particle": "itemexplorer:block/storage_terminal/side"
   },
   "elements": [
@@ -21,16 +22,6 @@
         16
       ],
       "faces": {
-        "north": {
-          "uv": [
-            0,
-            0,
-            16,
-            16
-          ],
-          "texture": "#front",
-          "cullface": "north"
-        },
         "south": {
           "uv": [
             0,
@@ -80,6 +71,132 @@
           ],
           "texture": "#bottom",
           "cullface": "down"
+        }
+      }
+    },
+    {
+      "from": [
+        0,
+        13.5,
+        0
+      ],
+      "to": [
+        16,
+        16,
+        0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0,
+            0,
+            16,
+            2.5
+          ],
+          "texture": "#front",
+          "cullface": "north"
+        }
+      }
+    },
+    {
+      "from": [
+        0,
+        0,
+        0
+      ],
+      "to": [
+        16,
+        5,
+        0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0,
+            11,
+            16,
+            16
+          ],
+          "texture": "#front",
+          "cullface": "north"
+        }
+      }
+    },
+    {
+      "from": [
+        0,
+        5,
+        0
+      ],
+      "to": [
+        2,
+        13.5,
+        0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            14,
+            2.5,
+            16,
+            11
+          ],
+          "texture": "#front",
+          "cullface": "north"
+        }
+      }
+    },
+    {
+      "from": [
+        14,
+        5,
+        0
+      ],
+      "to": [
+        16,
+        13.5,
+        0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0,
+            2.5,
+            2,
+            11
+          ],
+          "texture": "#front",
+          "cullface": "north"
+        }
+      }
+    },
+    {
+      "from": [
+        2,
+        5,
+        0
+      ],
+      "to": [
+        14,
+        13.5,
+        0
+      ],
+      "shade": false,
+      "forge_data": {
+        "block_light": 15,
+        "sky_light": 15,
+        "ambient_occlusion": false
+      },
+      "faces": {
+        "north": {
+          "uv": [
+            2,
+            2.5,
+            14,
+            11
+          ],
+          "texture": "#screen",
+          "cullface": "north"
         }
       }
     }

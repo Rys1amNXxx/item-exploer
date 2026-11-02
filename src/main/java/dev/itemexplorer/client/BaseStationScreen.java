@@ -96,11 +96,11 @@ public final class BaseStationScreen extends AbstractContainerScreen<BaseStation
     @Override protected void renderLabels(GuiGraphics graphics, int mouseX, int mouseY) {}
 
     private void line(GuiGraphics g, Component text, int x, int y, int color, int maxWidth) {
-        g.drawString(font, font.plainSubstrByWidth(text.getString(), maxWidth), leftPos + x, topPos + y, VanillaGui.panelText(color), VanillaGui.panelShadow());
+        VanillaGui.panelString(g, font, font.plainSubstrByWidth(text.getString(), maxWidth), leftPos + x, topPos + y, color);
     }
 
     private void recessLine(GuiGraphics graphics, Component text, int offsetX, int offsetY, int color, int maxWidth) {
-        graphics.drawString(font, font.plainSubstrByWidth(text.getString(), maxWidth), leftPos + offsetX, topPos + offsetY, VanillaGui.recessText(color), true);
+        VanillaGui.recessString(graphics, font, font.plainSubstrByWidth(text.getString(), maxWidth), leftPos + offsetX, topPos + offsetY, color);
     }
 
     @Override protected void renderBg(GuiGraphics g, float partialTick, int mouseX, int mouseY) {
@@ -128,7 +128,7 @@ public final class BaseStationScreen extends AbstractContainerScreen<BaseStation
                     11, 78, 0xff53636b, imageWidth - 22);
             int y = 100;
             for (var line : font.split(label("ready_hint"), imageWidth - 32)) {
-                g.drawString(font, line, leftPos + 16, topPos + y, VanillaGui.panelText(0xff35434b), VanillaGui.panelShadow());
+                VanillaGui.panelString(g, font, line, leftPos + 16, topPos + y, 0xff35434b);
                 y += 12;
             }
             line(g, label("no_power"), 11, imageHeight - 22, 0xff53636b, imageWidth - 22);
@@ -146,7 +146,8 @@ public final class BaseStationScreen extends AbstractContainerScreen<BaseStation
             recessLine(g, label("position", p.getX(), p.getY(), p.getZ()), 13, y + 11, 0xffd0d0d0, imageWidth - 26);
         }
         int pages = Math.max(1, (issues.size() + rows - 1) / rows);
-        g.drawCenteredString(font, label("page", page + 1, pages), leftPos + imageWidth / 2, topPos + imageHeight - 20, VanillaGui.panelText(0xff35434b));
+        Component pageLabel = label("page", page + 1, pages);
+        VanillaGui.panelString(g, font, pageLabel, leftPos + (imageWidth - font.width(pageLabel)) / 2, topPos + imageHeight - 20, 0xff35434b);
     }
 
     private static String partId(BaseStationStructure.Part part) {
@@ -181,7 +182,7 @@ public final class BaseStationScreen extends AbstractContainerScreen<BaseStation
         int y = 100;
         for (var text : font.split(label("chunk_coverage_hint"), imageWidth - 88)) {
             if (y > 122) break;
-            g.drawString(font, text, leftPos + 77, topPos + y, VanillaGui.panelText(0xff35434b), VanillaGui.panelShadow());
+            VanillaGui.panelString(g, font, text, leftPos + 77, topPos + y, 0xff35434b);
             y += 11;
         }
         int minX = ((menu.position().getX() >> 4) - 1) << 4;
@@ -209,7 +210,7 @@ public final class BaseStationScreen extends AbstractContainerScreen<BaseStation
         for (String key : keys) {
             for (var line : font.split(label(key), imageWidth - 24)) {
                 if (y + 9 > imageHeight - 8) return;
-                g.drawString(font, line, leftPos + 12, topPos + y, VanillaGui.panelText(0xff35434b), VanillaGui.panelShadow());
+                VanillaGui.panelString(g, font, line, leftPos + 12, topPos + y, 0xff35434b);
                 y += 11;
             }
             y += 3;

@@ -121,6 +121,7 @@ public final class StorageMenu extends AbstractContainerMenu {
                     pageSize = Math.max(StorageInventory.PAGE_SIZE, Math.min(StorageInventory.MAX_PAGE_SIZE, location.pageSize()));
                 }
             }
+            if (!player.level().isClientSide) blockEntity.openedBy(this);
         }
     }
     public boolean isPortable() { return portableMode; }
@@ -771,6 +772,7 @@ public final class StorageMenu extends AbstractContainerMenu {
             portable.saveLocation(volume, searching ? savedFolder : currentFolder,
                     searching ? savedPage : page, searching ? savedPageSize : pageSize);
         closed = true; exitSearch(false); super.removed(player);
+        if (blockEntity != null && !player.level().isClientSide) blockEntity.closedBy(this);
         if (!player.level().isClientSide) {
             clearContainer(player, craftSlots);
             craftResult.clearContent();

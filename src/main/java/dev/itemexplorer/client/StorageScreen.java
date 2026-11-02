@@ -752,7 +752,7 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
     protected void renderLabels(GuiGraphics g, int mouseX, int mouseY) {}
 
     private void text(GuiGraphics g, Component value, int x, int y, int maxWidth, int color) {
-        g.drawString(font, fit(value.getString(), maxWidth), leftPos + x, topPos + y, VanillaGui.panelText(color), VanillaGui.panelShadow());
+        VanillaGui.panelString(g, font, fit(value.getString(), maxWidth), leftPos + x, topPos + y, color);
     }
 
     private void recessText(GuiGraphics graphics, Component value, int offsetX, int offsetY, int maxWidth, int color) {
@@ -760,7 +760,7 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
     }
 
     private void recessText(GuiGraphics graphics, Component value, int offsetX, int offsetY, int maxWidth, int color, int overlay) {
-        graphics.drawString(font, fit(value.getString(), maxWidth), leftPos + offsetX, topPos + offsetY, VanillaGui.recessText(color, overlay), true);
+        VanillaGui.recessString(graphics, font, fit(value.getString(), maxWidth), leftPos + offsetX, topPos + offsetY, color, overlay);
     }
 
     private void panel(GuiGraphics g, int x, int y, int w, int h) {
@@ -908,8 +908,7 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
         int x = 12, y = layout.controlsY() - h - 3;
         g.pose().pushPose(); g.pose().translate(0, 0, 250);
         panel(g, x, y, imageWidth - 24, h);
-        for (int i = 0; i < lines.size(); i++) g.drawString(font, lines.get(i), leftPos + x + 8, topPos + y + 6 + i * font.lineHeight,
-                VanillaGui.panelText(0xffa02020), VanillaGui.panelShadow());
+        for (int i = 0; i < lines.size(); i++) VanillaGui.panelString(g, font, lines.get(i), leftPos + x + 8, topPos + y + 6 + i * font.lineHeight, 0xffa02020);
         g.pose().popPose();
     }
 

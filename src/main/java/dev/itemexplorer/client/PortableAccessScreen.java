@@ -106,7 +106,7 @@ public final class PortableAccessScreen extends Screen {
         String value = text.getString();
         if (font.width(value) > panelWidth - 20)
             value = font.plainSubstrByWidth(value, panelWidth - 20 - font.width("…")) + "…";
-        graphics.drawString(font, value, left + 10, top + y, VanillaGui.panelText(color), VanillaGui.panelShadow());
+        VanillaGui.panelString(graphics, font, value, left + 10, top + y, color);
     }
 
     @Override public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
@@ -119,14 +119,14 @@ public final class PortableAccessScreen extends Screen {
         boolean wireless = menu.view().getCompound("RemoteConfig").getBoolean("NetworkOnline");
         int y = 31;
         for (var text : font.split(label(!connected ? "station_needed" : wireless ? "station_ready" : "wireless_needed"), panelWidth - 20)) {
-            graphics.drawString(font, text, left + 10, top + y, VanillaGui.panelText(MUTED), VanillaGui.panelShadow());
+            VanillaGui.panelString(graphics, font, text, left + 10, top + y, MUTED);
             y += 11;
             if (y > 53) break;
         }
         line(graphics, label("devices", menu.view().getInt("PortablePairings")), 61, TEXT);
         y = 130;
         for (var text : font.split(label("setup_hint"), panelWidth - 20)) {
-            graphics.drawString(font, text, left + 10, top + y, VanillaGui.panelText(MUTED), VanillaGui.panelShadow());
+            VanillaGui.panelString(graphics, font, text, left + 10, top + y, MUTED);
             y += 11;
             if (y > 174) break;
         }

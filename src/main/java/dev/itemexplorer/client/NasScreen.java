@@ -52,7 +52,7 @@ public final class NasScreen extends AbstractContainerScreen<NasMenu> {
             int y = topPos + 130 - lines.size() * 10;
             g.pose().pushPose(); g.pose().translate(0, 0, 300);
             VanillaGui.panel(g, leftPos + 8, y - 4, 268, topPos + 138 - y);
-            for (var line : lines) { g.drawString(font, line, leftPos + 12, y, VanillaGui.panelText(0xffa02020), VanillaGui.panelShadow()); y += 10; }
+            for (var line : lines) { VanillaGui.panelString(g, font, line, leftPos + 12, y, 0xffa02020); y += 10; }
             g.pose().popPose();
         }
         if (mouseX >= leftPos + 8 && mouseX < leftPos + 190 && mouseY >= topPos + 24 && mouseY < topPos + 140) {
@@ -70,7 +70,7 @@ public final class NasScreen extends AbstractContainerScreen<NasMenu> {
     @Override protected void renderLabels(GuiGraphics g, int x, int y) {}
     @Override protected void renderBg(GuiGraphics g, float partialTick, int mouseX, int mouseY) {
         VanillaGui.panel(g, leftPos, topPos, imageWidth, imageHeight);
-        g.drawString(font, title, leftPos + 9, topPos + 9, VanillaGui.panelText(0xff303030), VanillaGui.panelShadow());
+        VanillaGui.panelString(g, font, title, leftPos + 9, topPos + 9, 0xff303030);
         ListTag bays = menu.view().getList("Bays", Tag.TAG_COMPOUND);
         for (int i = 0; i < 4; i++) {
             int y = topPos + 24 + i * 29;
@@ -79,11 +79,11 @@ public final class NasScreen extends AbstractContainerScreen<NasMenu> {
             ItemStack stack = ItemStack.of(bay.getCompound("Stack"));
             if (!stack.isEmpty()) g.renderItem(stack, leftPos + 12, y + 5);
             String name = (i + 1) + ". " + (stack.isEmpty() ? label("empty_bay").getString() : stack.getHoverName().getString());
-            g.drawString(font, font.plainSubstrByWidth(name, 152), leftPos + 32, y + 3, VanillaGui.recessText(0xffeeeeee), true);
+            VanillaGui.recessString(g, font, font.plainSubstrByWidth(name, 152), leftPos + 32, y + 3, 0xffeeeeee);
             String status = bay.getString("Status");
             String detail = status.equals("online") ? bay.getLong("Total") + " / " + bay.getLong("Capacity")
                     : Component.translatable("message.itemexplorer." + (status.isEmpty() ? "empty_bay" : status)).getString();
-            g.drawString(font, font.plainSubstrByWidth(detail, 152), leftPos + 32, y + 15, VanillaGui.recessText(0xffd0d0d0), true);
+            VanillaGui.recessString(g, font, font.plainSubstrByWidth(detail, 152), leftPos + 32, y + 15, 0xffd0d0d0);
         }
         var firstSlot = menu.slots.get(0);
         VanillaGui.playerInventory(g, leftPos + firstSlot.x, topPos + firstSlot.y);

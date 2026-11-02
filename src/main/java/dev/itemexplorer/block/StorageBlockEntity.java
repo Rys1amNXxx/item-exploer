@@ -13,6 +13,7 @@ import net.minecraft.world.MenuProvider;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.AbstractContainerMenu;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.storage.LevelResource;
@@ -20,6 +21,9 @@ import org.slf4j.Logger;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.Collections;
+import java.util.IdentityHashMap;
+import java.util.Set;
 
 public final class StorageBlockEntity extends BlockEntity implements MenuProvider {
     private static final Logger LOGGER = LogUtils.getLogger();
@@ -34,6 +38,8 @@ public final class StorageBlockEntity extends BlockEntity implements MenuProvide
     private java.util.UUID defaultVolume;
     private Path recoveryArchive;
     private Path programRecoveryArchive;
+    // Fixed and portable windows alike; never saved, so a restart always starts idle.
+    private final Set<StorageMenu> viewers = Collections.newSetFromMap(new IdentityHashMap<>());
 
     public StorageBlockEntity(BlockPos pos, BlockState state) {
         super(ModContent.STORAGE_ENTITY.get(), pos, state);
@@ -98,6 +104,7 @@ public final class StorageBlockEntity extends BlockEntity implements MenuProvide
         recoveryArchive = null;
         programRecoveryArchive = null;
         archiveProtectedData();
+        refreshScreen();
     }
 
     @Override
@@ -105,6 +112,24 @@ public final class StorageBlockEntity extends BlockEntity implements MenuProvide
         super.onLoad();
         archiveProtectedData();
         dev.itemexplorer.transfer.RemoteTransfers.register(this);
+        // Chunk loads run this from the block-entity tick, after the saved (possibly stale) state is in place.
+        refreshScreen();
+    }
+
+    public void openedBy(StorageMenu menu) { if (viewers.add(menu)) refreshScreen(); }
+    public void closedBy(StorageMenu menu) { if (viewers.remove(menu)) refreshScreen(); }
+
+    public StorageBlock.Screen screen() {
+        if (inventory.isLocked() || programs.isLocked()) return StorageBlock.Screen.LOCKED;
+        return viewers.isEmpty() ? StorageBlock.Screen.IDLE : StorageBlock.Screen.ACTIVE;
+    }
+
+    /** Appearance only: clients follow the block state, and no neighbor updates are sent. */
+    public void refreshScreen() {
+        if (level == null || level.isClientSide || isRemoved()) return;
+        BlockState state = getBlockState();
+        if (!state.hasProperty(StorageBlock.SCREEN) || state.getValue(StorageBlock.SCREEN) == screen()) return;
+        level.setBlock(worldPosition, state.setValue(StorageBlock.SCREEN, screen()), Block.UPDATE_CLIENTS);
     }
 
     @Override public void setRemoved() {

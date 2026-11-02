@@ -675,7 +675,7 @@ public final class ProductionPortScreen extends AbstractContainerScreen<Producti
         return label(dirty() ? "unsaved_changes" : "saved_changes");
     }
     @Override protected void renderLabels(GuiGraphics g, int x, int y) {}
-    private void line(GuiGraphics g, Component text, int x, int y, int width) { g.drawString(font, font.plainSubstrByWidth(text.getString(), width), leftPos + x, topPos + y, VanillaGui.panelText(0xff303030), VanillaGui.panelShadow()); }
+    private void line(GuiGraphics g, Component text, int x, int y, int width) { VanillaGui.panelString(g, font, font.plainSubstrByWidth(text.getString(), width), leftPos + x, topPos + y, 0xff303030); }
     @Override protected void renderBg(GuiGraphics g, float partialTick, int mouseX, int mouseY) {
         VanillaGui.panel(g, leftPos, topPos, imageWidth, imageHeight); line(g, label("name"), 10, 11, 31);
         if (page == 0) {

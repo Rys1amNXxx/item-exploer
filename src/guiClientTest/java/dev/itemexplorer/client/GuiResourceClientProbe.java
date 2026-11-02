@@ -417,6 +417,8 @@ public final class GuiResourceClientProbe {
         int red = color >>> 16 & 255, green = color >>> 8 & 255, blue = color & 255;
         check(red == green && green == blue && red <= 64,
                 theme().name() + "/" + name + " must use a dark neutral color, got " + Integer.toHexString(color));
+        // A drop shadow under dark text is a near-black copy one pixel away and reads as doubled glyphs.
+        check(!VanillaGui.shadow(color), theme().name() + "/" + name + " must not draw a shadow under dark text");
     }
     private static void check(boolean condition, String message) { if (!condition) throw new IllegalStateException(message); }
     private static void log(String message) throws Exception {

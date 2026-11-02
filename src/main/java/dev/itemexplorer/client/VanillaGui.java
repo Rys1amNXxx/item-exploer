@@ -1,9 +1,12 @@
 package dev.itemexplorer.client;
 
 import com.mojang.blaze3d.systems.RenderSystem;
+import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.packs.resources.ResourceManager;
+import net.minecraft.util.FormattedCharSequence;
 
 final class VanillaGui {
     private static final ResourceLocation CONTAINER = new ResourceLocation("minecraft", "textures/gui/container/crafting_table.png");
@@ -64,8 +67,36 @@ final class VanillaGui {
         return readable(preferred, composite(overlay, background));
     }
 
-    static boolean panelShadow() {
-        return palette.panel().background() >>> 24 < 255 || luminance(palette.panel().background()) < 0.2;
+    static void panelString(GuiGraphics graphics, Font font, String text, int x, int y, int preferred) {
+        int color = panelText(preferred); graphics.drawString(font, text, x, y, color, shadow(color));
+    }
+
+    static void panelString(GuiGraphics graphics, Font font, Component text, int x, int y, int preferred) {
+        int color = panelText(preferred); graphics.drawString(font, text, x, y, color, shadow(color));
+    }
+
+    static void panelString(GuiGraphics graphics, Font font, FormattedCharSequence text, int x, int y, int preferred) {
+        int color = panelText(preferred); graphics.drawString(font, text, x, y, color, shadow(color));
+    }
+
+    static void recessString(GuiGraphics graphics, Font font, String text, int x, int y, int preferred) {
+        recessString(graphics, font, text, x, y, preferred, 0);
+    }
+
+    static void recessString(GuiGraphics graphics, Font font, String text, int x, int y, int preferred, int overlay) {
+        int color = recessText(preferred, overlay); graphics.drawString(font, text, x, y, color, shadow(color));
+    }
+
+    static void recessString(GuiGraphics graphics, Font font, FormattedCharSequence text, int x, int y, int preferred) {
+        int color = recessText(preferred); graphics.drawString(font, text, x, y, color, shadow(color));
+    }
+
+    /**
+     * Like vanilla, only light text gets a drop shadow. When contrast forces dark text, the shadow is a
+     * near-black copy one pixel down-right and reads as a doubled glyph.
+     */
+    static boolean shadow(int text) {
+        return luminance(text) > 0.18;
     }
 
     private static int readable(int preferred, int background) {

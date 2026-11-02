@@ -229,7 +229,7 @@ public final class RemoteTransferScreen extends Screen {
         return font.plainSubstrByWidth(text, Math.max(0, maxWidth - font.width("…"))) + "…";
     }
     private void line(GuiGraphics g, Component text, int x, int y, int maxWidth, int color) {
-        g.drawString(font, fit(text.getString(), maxWidth), left + x, top + y, VanillaGui.panelText(color), VanillaGui.panelShadow());
+        VanillaGui.panelString(g, font, fit(text.getString(), maxWidth), left + x, top + y, color);
     }
     private Component summary() {
         CompoundTag target = target();
@@ -339,7 +339,7 @@ public final class RemoteTransferScreen extends Screen {
         int y = 165;
         for (var text : font.split(label("receiving_hint"), panelWidth - 20)) {
             if (y > 187) break;
-            g.drawString(font, text, left + 10, top + y, VanillaGui.panelText(MUTED), VanillaGui.panelShadow()); y += 11;
+            VanillaGui.panelString(g, font, text, left + 10, top + y, MUTED); y += 11;
         }
     }
     private void drawSend(GuiGraphics g) {
@@ -361,7 +361,7 @@ public final class RemoteTransferScreen extends Screen {
             Component explanation = !config().getBoolean("StationConnected") ? label("no_station") : label("empty_targets");
             for (var text : font.split(explanation, panelWidth - 44)) {
                 if (y > 142) break;
-                g.drawString(font, text, left + 22, top + y, VanillaGui.recessText(0xffeeeeee), true); y += 12;
+                VanillaGui.recessString(g, font, text, left + 22, top + y, 0xffeeeeee); y += 12;
             }
         }
         line(g, label("quantity"), 10, 166, 39, TEXT);

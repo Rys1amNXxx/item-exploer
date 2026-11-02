@@ -1,0 +1,6 @@
+{
+  "parent": "itemexplorer:block/storage_terminal",
+  "textures": {
+    "screen": "itemexplorer:block/storage_terminal/screen_active"
+  }
+}

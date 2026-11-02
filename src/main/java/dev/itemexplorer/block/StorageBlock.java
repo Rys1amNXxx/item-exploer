@@ -5,6 +5,8 @@ import dev.itemexplorer.cable.DataCableEndpoint;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.util.RandomSource;
+import net.minecraft.util.StringRepresentable;
 import net.minecraft.world.Containers;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
@@ -22,20 +24,40 @@ import net.minecraft.world.level.block.SoundType;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
+import net.minecraft.world.level.block.state.properties.EnumProperty;
 import net.minecraft.world.level.material.MapColor;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraftforge.network.NetworkHooks;
 
 public class StorageBlock extends BaseEntityBlock implements DataCableEndpoint {
+    /** Server-owned terminal screen; NAS cabinets reuse this block class without the property. */
+    public enum Screen implements StringRepresentable {
+        IDLE("idle"), ACTIVE("active"), LOCKED("locked");
+
+        private final String name;
+        Screen(String name) { this.name = name; }
+        @Override public String getSerializedName() { return name; }
+    }
+    public static final EnumProperty<Screen> SCREEN = EnumProperty.create("screen", Screen.class);
+
     // Storage terminals and NAS cabinets (which extend this block) accept cables on all six faces.
     @Override public boolean acceptsDataCable(BlockState state, Direction face) { return true; }
     public StorageBlock() {
         super(Properties.of().mapColor(MapColor.METAL).strength(2.5F).sound(SoundType.METAL));
-        registerDefaultState(stateDefinition.any().setValue(HorizontalDirectionalBlock.FACING, Direction.NORTH));
+        BlockState state = stateDefinition.any().setValue(HorizontalDirectionalBlock.FACING, Direction.NORTH);
+        registerDefaultState(state.hasProperty(SCREEN) ? state.setValue(SCREEN, Screen.IDLE) : state);
     }
 
     @Override
-    protected void createBlockStateDefinition(StateDefinition.Builder<Block, BlockState> builder) { builder.add(HorizontalDirectionalBlock.FACING); }
+    protected void createBlockStateDefinition(StateDefinition.Builder<Block, BlockState> builder) {
+        builder.add(HorizontalDirectionalBlock.FACING, SCREEN);
+    }
+
+    /** Same fault sparks as the NAS: protected data is the one terminal state worth noticing from afar. */
+    @Override public void animateTick(BlockState state, Level level, BlockPos pos, RandomSource random) {
+        if (state.hasProperty(SCREEN) && state.getValue(SCREEN) == Screen.LOCKED)
+            DeviceParticles.fault(level, pos, state.getValue(HorizontalDirectionalBlock.FACING), .52, .3, random);
+    }
 
     @Override
     public BlockState getStateForPlacement(BlockPlaceContext context) {
