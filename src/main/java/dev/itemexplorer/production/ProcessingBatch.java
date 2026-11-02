@@ -15,20 +15,29 @@ import java.util.List;
 import java.util.IdentityHashMap;
 import java.util.Map;
 import java.util.function.Function;
+import dev.itemexplorer.production.ProcessingPattern.Material;
+import dev.itemexplorer.production.ProcessingPattern.Role;
 
 /** Owned items and monotonic counters for one batch; machine inventories are never assigned directly. */
 public final class ProcessingBatch {
     private final ProcessingPattern pattern;
     private final List<ItemStack> inputs = new ArrayList<>(), outputs = new ArrayList<>();
-    private final int[] reserved, sent, returned, collected, delivered;
+    private final int[] required, reserved, sent, returned, collected, delivered;
+    private final boolean hasSupply;
+    private boolean suppliesResolved;
     private final Runnable changed;
 
     public ProcessingBatch(ProcessingPattern pattern, Runnable changed) {
         this.pattern = pattern; this.changed = changed;
         int in = pattern.inputs().size(), out = pattern.outputs().size();
-        reserved = new int[in]; sent = new int[in]; returned = new int[in];
+        required = new int[in]; reserved = new int[in]; sent = new int[in]; returned = new int[in];
+        hasSupply = pattern.inputs().stream().anyMatch(material -> material.role() == Role.SUPPLY);
+        suppliesResolved = !hasSupply;
         collected = new int[out]; delivered = new int[out];
-        for (int i = 0; i < in; i++) inputs.add(ItemStack.EMPTY);
+        for (int i = 0; i < in; i++) {
+            inputs.add(ItemStack.EMPTY);
+            required[i] = pattern.inputs().get(i).role() == Role.STANDARD ? pattern.inputs().get(i).stack().getCount() : 0;
+        }
         for (int i = 0; i < out; i++) outputs.add(ItemStack.EMPTY);
     }
 
@@ -41,6 +50,14 @@ public final class ProcessingBatch {
     /** Find a shared slot allocation for all rows without changing any real inventory. */
     public static boolean canInsertBatch(IItemHandler handler, List<ItemStack> materials) {
         return BatchInsertionPlan.find(handler, materials) != null;
+    }
+
+    public static void requireReady(ProcessingPattern pattern, Function<Material, IItemHandler> handlers) {
+        new ProcessingRoute(pattern, handlers).requireReady();
+    }
+
+    private Function<Material, IItemHandler> routed(Function<Direction, IItemHandler> handlers) {
+        return material -> handlers.apply(pattern.inputs().contains(material) ? pattern.inputFace(material) : pattern.outputFace(material));
     }
 
     private static StorageInventory.Entry find(StorageInventory inventory, ProcessingPattern.Material material) {
@@ -63,26 +80,41 @@ public final class ProcessingBatch {
     }
 
     public void reserve(StorageInventory inventory, Function<Direction, IItemHandler> handlers) {
-        Map<IItemHandler, List<ItemStack>> remaining = new IdentityHashMap<>();
+        reserveRouted(inventory, routed(handlers));
+    }
+
+    public void reserveRouted(StorageInventory inventory, Function<Material, IItemHandler> handlers) {
+        ProcessingRoute routes = new ProcessingRoute(pattern, handlers); routes.requireRetained();
+        int[] nextRequired = required.clone();
+        if (!suppliesResolved) for (int row = 0; row < inputs.size(); row++) {
+            Material material = pattern.inputs().get(row);
+            if (material.role() == Role.SUPPLY) nextRequired[row] = routes.supplyDeficit(material);
+        }
+        Map<IItemHandler, List<Integer>> remaining = new IdentityHashMap<>();
+        List<ItemStack> pending = new ArrayList<>();
         StorageInventory shadow = copy(inventory);
         for (int row = 0; row < inputs.size(); row++) {
             ProcessingPattern.Material material = pattern.inputs().get(row);
-            IItemHandler handler = handlers.apply(pattern.inputFace(material));
-            List<ItemStack> items = remaining.computeIfAbsent(handler, unused -> new ArrayList<>());
-            if (!inputs.get(row).isEmpty()) items.add(inputs.get(row).copy());
-            int count = material.stack().getCount() - reserved[row];
+            IItemHandler handler = routes.handler(material);
+            int count = nextRequired[row] - reserved[row];
+            pending.add(material.stack().copyWithCount(inputs.get(row).getCount() + count));
+            if (!pending.get(row).isEmpty()) remaining.computeIfAbsent(handler, unused -> new ArrayList<>()).add(row);
             if (count <= 0) continue;
             StorageInventory.Entry entry = find(shadow, material);
             if (entry == null || shadow.take(entry.id(), count, false).getCount() != count)
                 throw new IllegalArgumentException("production_missing_input");
-            items.add(material.stack().copyWithCount(count));
         }
         // Identity-equal sided capabilities share one shadow. Different wrappers may still alias;
         // actual insertion remains authoritative and any unaccepted remainder stays in our buffer.
-        for (var entry : remaining.entrySet()) if (!canInsertBatch(entry.getKey(), entry.getValue()))
-            throw new IllegalArgumentException("production_waiting_input");
+        for (var entry : remaining.entrySet()) {
+            List<Integer> rows = entry.getValue();
+            if (BatchInsertionPlan.find(entry.getKey(), rows.stream().map(pending::get).toList(),
+                    rows.stream().mapToInt(row -> pattern.inputs().get(row).slot()).toArray(), routes.excluded(entry.getKey()), false) == null)
+                throw new IllegalArgumentException("production_waiting_input");
+        }
         try {
             for (ProcessingPattern.Material output : pattern.outputs()) {
+                if (output.role() == Role.OPTIONAL) continue;
                 ItemStack stack = output.stack();
                 if (shadow.insert(stack, stack.getCount(), output.folder(), false) != stack.getCount())
                     throw new IllegalArgumentException("production_output_full");
@@ -90,9 +122,12 @@ public final class ProcessingBatch {
         } catch (IllegalArgumentException full) {
             throw new IllegalArgumentException("production_output_full");
         }
+        if (!suppliesResolved) {
+            System.arraycopy(nextRequired, 0, required, 0, required.length); suppliesResolved = true; changed.run();
+        }
         for (int row = 0; row < inputs.size(); row++) {
             ProcessingPattern.Material material = pattern.inputs().get(row);
-            int count = material.stack().getCount() - reserved[row];
+            int count = required[row] - reserved[row];
             if (count <= 0) continue;
             StorageInventory.Entry entry = find(inventory, material);
             if (entry == null) throw new IllegalArgumentException("production_missing_input");
@@ -106,12 +141,14 @@ public final class ProcessingBatch {
     }
 
     public boolean staged() {
-        for (int row = 0; row < reserved.length; row++) if (reserved[row] != pattern.inputs().get(row).stack().getCount()) return false;
+        if (!suppliesResolved) return false;
+        for (int row = 0; row < reserved.length; row++) if (reserved[row] != required[row]) return false;
         return true;
     }
 
     public boolean sentAll() {
-        for (int row = 0; row < sent.length; row++) if (sent[row] != pattern.inputs().get(row).stack().getCount()) return false;
+        if (!suppliesResolved) return false;
+        for (int row = 0; row < sent.length; row++) if (sent[row] != required[row]) return false;
         return true;
     }
 
@@ -120,18 +157,25 @@ public final class ProcessingBatch {
     }
 
     public void insert(Function<Direction, IItemHandler> handlers) {
+        insertRouted(routed(handlers));
+    }
+
+    public void insertRouted(Function<Material, IItemHandler> handlers) {
         if (!staged()) return;
+        ProcessingRoute routes = new ProcessingRoute(pattern, handlers);
+        if (!sentAll()) routes.requireRetained();
         record Insertion(IItemHandler handler, int row, int slot, int count) {}
         List<Insertion> insertions = new ArrayList<>();
         Map<IItemHandler, List<Integer>> rowsByHandler = new IdentityHashMap<>();
         for (int row = 0; row < inputs.size(); row++) {
             if (inputs.get(row).isEmpty()) continue;
-            IItemHandler handler = handlers.apply(pattern.inputFace(pattern.inputs().get(row)));
+            IItemHandler handler = routes.handler(pattern.inputs().get(row));
             rowsByHandler.computeIfAbsent(handler, unused -> new ArrayList<>()).add(row);
         }
         for (var group : rowsByHandler.entrySet()) {
             List<Integer> rows = group.getValue();
-            BatchInsertionPlan plan = BatchInsertionPlan.find(group.getKey(), rows.stream().map(inputs::get).toList(), true);
+            BatchInsertionPlan plan = BatchInsertionPlan.find(group.getKey(), rows.stream().map(inputs::get).toList(),
+                    rows.stream().mapToInt(row -> pattern.inputs().get(row).slot()).toArray(), routes.excluded(group.getKey()), true);
             if (plan == null) continue;
             for (var move : plan.moves())
                 insertions.add(new Insertion(group.getKey(), rows.get(move.row()), move.slot(), move.count()));
@@ -156,11 +200,20 @@ public final class ProcessingBatch {
     }
 
     public void collect(Function<Direction, IItemHandler> handlers) {
-        if (java.util.Arrays.stream(sent).noneMatch(value -> value > 0)) return;
-        for (int row = 0; row < outputs.size(); row++) {
-            IItemHandler handler = handlers.apply(pattern.outputFace(pattern.outputs().get(row)));
-            ItemStack target = pattern.outputs().get(row).stack();
-            for (int slot = 0; slot < handler.getSlots() && collected[row] < target.getCount(); slot++) {
+        collectRouted(routed(handlers));
+    }
+
+    public void collectRouted(Function<Material, IItemHandler> handlers) {
+        if (java.util.Arrays.stream(sent).noneMatch(value -> value > 0) && !(staged() && java.util.Arrays.stream(required).allMatch(value -> value == 0))) return;
+        ProcessingRoute routes = new ProcessingRoute(pattern, handlers);
+        // Required output claims have priority even when an optional row was configured first.
+        for (boolean optional : new boolean[]{false, true}) for (int row = 0; row < outputs.size(); row++) {
+            Material material = pattern.outputs().get(row);
+            if ((material.role() == Role.OPTIONAL) != optional) continue;
+            IItemHandler handler = routes.handler(material); ItemStack target = material.stack();
+            int first = material.slot() < 0 ? 0 : material.slot(), end = material.slot() < 0 ? handler.getSlots() : first + 1;
+            for (int slot = first; slot < end && collected[row] < target.getCount(); slot++) {
+                if (routes.excluded(handler).contains(slot)) continue;
                 if (!ProcessingPattern.matches(handler.getStackInSlot(slot), target)) continue;
                 int requested = target.getCount() - collected[row];
                 ItemStack simulated = handler.extractItem(slot, requested, true);
@@ -209,8 +262,9 @@ public final class ProcessingBatch {
     public boolean outputBlocked() { return outputs.stream().anyMatch(stack -> !stack.isEmpty()); }
 
     public boolean complete() {
-        if (!sentAll()) return false;
-        for (int row = 0; row < delivered.length; row++) if (delivered[row] != pattern.outputs().get(row).stack().getCount()) return false;
+        if (!sentAll() || outputBlocked()) return false;
+        for (int row = 0; row < delivered.length; row++) if (pattern.outputs().get(row).role() != Role.OPTIONAL
+                && delivered[row] != pattern.outputs().get(row).stack().getCount()) return false;
         return true;
     }
 
@@ -233,12 +287,15 @@ public final class ProcessingBatch {
         for (int row = 0; row < inputs.size(); row++) {
             CompoundTag data = new CompoundTag(); data.put("Buffer", savedBuffer(inputs.get(row)));
             data.putInt("Reserved", reserved[row]); data.putInt("Sent", sent[row]); data.putInt("Returned", returned[row]); in.add(data);
+            if (pattern.inputs().get(row).role() == Role.SUPPLY) data.putInt("Required", required[row]);
         }
         for (int row = 0; row < outputs.size(); row++) {
             CompoundTag data = new CompoundTag(); data.put("Buffer", savedBuffer(outputs.get(row)));
             data.putInt("Collected", collected[row]); data.putInt("Delivered", delivered[row]); out.add(data);
         }
-        tag.put("Inputs", in); tag.put("Outputs", out); return tag;
+        tag.put("Inputs", in); tag.put("Outputs", out);
+        if (hasSupply) tag.putBoolean("SupplyResolved", suppliesResolved);
+        return tag;
     }
 
     private static CompoundTag savedBuffer(ItemStack stack) {
@@ -247,13 +304,23 @@ public final class ProcessingBatch {
 
     public static ProcessingBatch load(ProcessingPattern pattern, CompoundTag tag, boolean active, Runnable changed) {
         ProcessingBatch batch = new ProcessingBatch(pattern, changed);
+        if (batch.hasSupply) {
+            FurnaceProgram.require(tag, "SupplyResolved", Tag.TAG_BYTE);
+            if (tag.getByte("SupplyResolved") != 0 && tag.getByte("SupplyResolved") != 1) throw new IllegalArgumentException();
+            batch.suppliesResolved = tag.getBoolean("SupplyResolved");
+        }
         ListTag in = rows(tag, "Inputs", pattern.inputs().size()), out = rows(tag, "Outputs", pattern.outputs().size());
         for (int row = 0; row < in.size(); row++) {
             CompoundTag data = in.getCompound(row); ItemStack target = pattern.inputs().get(row).stack();
             ItemStack buffer = FurnaceProgram.stack(data, "Buffer", true);
             int reserved = nonnegative(data, "Reserved"), sent = nonnegative(data, "Sent"), returned = nonnegative(data, "Returned");
-            if ((!buffer.isEmpty() && !ProcessingPattern.matches(buffer, target)) || reserved > target.getCount()
+            if (pattern.inputs().get(row).role() == Role.SUPPLY) {
+                batch.required[row] = nonnegative(data, "Required");
+                if (batch.required[row] > target.getCount() || (!batch.suppliesResolved && batch.required[row] != 0)) throw new IllegalArgumentException();
+            }
+            if ((!buffer.isEmpty() && !ProcessingPattern.matches(buffer, target)) || reserved > batch.required[row]
                     || (long) sent + returned + buffer.getCount() != reserved || (active && returned != 0)) throw new IllegalArgumentException();
+            if (!batch.suppliesResolved && reserved != 0) throw new IllegalArgumentException();
             batch.inputs.set(row, buffer); batch.reserved[row] = reserved; batch.sent[row] = sent; batch.returned[row] = returned;
         }
         for (int row = 0; row < out.size(); row++) {
@@ -266,7 +333,8 @@ public final class ProcessingBatch {
         }
         boolean hasSent = java.util.Arrays.stream(batch.sent).anyMatch(value -> value > 0);
         boolean hasCollected = java.util.Arrays.stream(batch.collected).anyMatch(value -> value > 0);
-        if ((!batch.staged() && (hasSent || hasCollected)) || (hasCollected && !hasSent)) throw new IllegalArgumentException();
+        if ((!batch.staged() && (hasSent || hasCollected)) || (hasCollected && !hasSent
+                && java.util.Arrays.stream(batch.required).anyMatch(value -> value > 0))) throw new IllegalArgumentException();
         if (!tag.equals(batch.save())) throw new IllegalArgumentException();
         return batch;
     }

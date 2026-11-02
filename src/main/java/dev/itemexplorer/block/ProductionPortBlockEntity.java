@@ -9,6 +9,7 @@ import dev.itemexplorer.production.MachineAdapters;
 import dev.itemexplorer.production.ItemHandlerAccess;
 import dev.itemexplorer.production.ProcessingBatch;
 import dev.itemexplorer.production.ProcessingPattern;
+import dev.itemexplorer.production.TerminalPrograms;
 import dev.itemexplorer.storage.StorageInventory;
 import dev.itemexplorer.storage.StorageRecovery;
 import net.minecraft.core.BlockPos;
@@ -29,6 +30,13 @@ import net.minecraftforge.items.ItemHandlerHelper;
 import net.minecraftforge.items.IItemHandler;
 
 import java.util.UUID;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.IdentityHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /** A physical machine endpoint. Saved documents live on the terminal; this owns one immutable run snapshot. */
 public final class ProductionPortBlockEntity extends BlockEntity {
@@ -139,6 +147,77 @@ public final class ProductionPortBlockEntity extends BlockEntity {
         if (!data.hasUUID(MACHINE_ID)) { data.putUUID(MACHINE_ID, UUID.randomUUID()); machine.setChanged(); }
         return data.getUUID(MACHINE_ID);
     }
+    /** Capture a server-owned binding; coordinates alone never authorize another endpoint. */
+    public ProcessingPattern.Endpoint processingEndpoint() {
+        if (isLocked()) throw failure("production_storage_locked");
+        return new ProcessingPattern.Endpoint(worldPosition, identity(), machineIdentity(requireMachine()));
+    }
+    public int processingSlots(Direction face) {
+        IItemHandler handler = ItemHandlerAccess.handler(machine(), face);
+        return handler == null ? 0 : handler.getSlots();
+    }
+
+    private record ProcessingAccess(Map<ProcessingPattern.Material, IItemHandler> handlers, Set<BlockEntity> machines) {}
+    private record AccessKey(BlockPos port, Direction face) {}
+
+    private ProcessingAccess processingAccess(StorageBlockEntity terminal, ProcessingPattern pattern) {
+        var discovered = TerminalPrograms.discover(terminal);
+        if (!discovered.problem().isEmpty()) throw failure(discovered.problem());
+        Map<BlockPos, ProductionPortBlockEntity> ports = new HashMap<>();
+        for (var port : discovered.ports()) ports.put(port.getBlockPos(), port);
+        if (ports.get(worldPosition) != this) throw failure("production_machine_offline");
+        Map<AccessKey, IItemHandler> acquired = new HashMap<>();
+        Map<ProcessingPattern.Material, IItemHandler> handlers = new IdentityHashMap<>();
+        Set<BlockEntity> machines = new HashSet<>();
+        for (boolean output : new boolean[]{false, true}) for (var material : output ? pattern.outputs() : pattern.inputs()) {
+            var endpoint = material.endpoint();
+            var port = endpoint == null ? this : ports.get(endpoint.port());
+            if (port == null || port.isRemoved()) throw failure("production_machine_offline");
+            if (port.isLocked()) throw failure("production_storage_locked");
+            if (endpoint != null && !port.identity().equals(endpoint.portId())) throw failure("production_machine_changed");
+            BlockEntity machine = port.requireMachine();
+            if (endpoint != null && (!machine.getPersistentData().hasUUID(MACHINE_ID)
+                    || !endpoint.machineId().equals(machine.getPersistentData().getUUID(MACHINE_ID))))
+                throw failure("production_machine_changed");
+            Direction face = output ? pattern.outputFace(material) : pattern.inputFace(material);
+            IItemHandler handler = acquired.computeIfAbsent(new AccessKey(port.getBlockPos(), face), key -> requireHandler(machine, face));
+            if (material.slot() >= handler.getSlots()) throw failure("production_invalid_config");
+            handlers.put(material, handler); machines.add(machine);
+        }
+        return new ProcessingAccess(handlers, machines);
+    }
+
+    private static Set<BlockPos> participatingPorts(BlockPos coordinator, FurnaceProgram definition) {
+        Set<BlockPos> result = new HashSet<>(); result.add(coordinator);
+        if (definition.generic()) {
+            List<ProcessingPattern.Material> materials = new ArrayList<>(definition.pattern().inputs());
+            materials.addAll(definition.pattern().outputs());
+            for (var material : materials) if (material.endpoint() != null) result.add(material.endpoint().port());
+        }
+        return result;
+    }
+    private Set<BlockPos> machinesAt(Set<BlockPos> positions) {
+        Set<BlockPos> result = new HashSet<>();
+        for (BlockPos position : positions) if (loaded(position) instanceof ProductionPortBlockEntity port)
+            result.add(port.machinePosition());
+        return result;
+    }
+    /** Active documents persist endpoint reservations even while their coordinator is unloaded. */
+    private void requireAvailableEndpoints(StorageBlockEntity terminal, int fileId, FurnaceProgram definition) {
+        Set<BlockPos> own = participatingPorts(worldPosition, definition), ownMachines = machinesAt(own);
+        for (var file : terminal.programs().files()) {
+            if (file.id() == fileId || !file.active() || !file.configured()) continue;
+            Set<BlockPos> other = participatingPorts(file.portPos(), file.definition());
+            if (other.stream().anyMatch(own::contains) || machinesAt(other).stream().anyMatch(ownMachines::contains))
+                throw failure("production_machine_busy");
+        }
+        for (BlockPos position : own) if (!position.equals(worldPosition)
+                && loaded(position) instanceof ProductionPortBlockEntity port) {
+            if (port.isLocked()) throw failure("production_storage_locked");
+            if (port.running) throw failure("production_machine_busy");
+            if (port.processingBatch != null && port.processingBatch.hasOwned()) throw failure("production_return_pending");
+        }
+    }
     public String topologyStamp() {
         Connection c = connection(); BlockEntity machine = machine();
         return c.problem + ":" + (c.terminal == null ? "" : c.terminal.productionIdentity() + ":" + c.terminal.accessSession())
@@ -177,20 +256,13 @@ public final class ProductionPortBlockEntity extends BlockEntity {
         if (pattern == null) throw failure("production_invalid_config");
         StorageBlockEntity terminal = requireTerminal(); BlockEntity machine = requireMachine();
         pattern.validateFolders(terminal.inventory());
-        for (var material : pattern.inputs()) requireHandler(machine, pattern.inputFace(material));
-        for (var material : pattern.outputs()) requireHandler(machine, pattern.outputFace(material));
+        processingAccess(terminal, pattern);
         return new FurnaceProgram(name, pattern, 1, terminal.productionIdentity(), machineIdentity(machine));
     }
     private static IItemHandler requireHandler(BlockEntity machine, Direction face) {
         IItemHandler handler = ItemHandlerAccess.handler(machine, face);
         if (handler == null) throw failure("production_machine_offline");
         return handler;
-    }
-    private static void requireEmptyHandlers(BlockEntity machine, ProcessingPattern pattern) {
-        for (var material : pattern.inputs()) if (!ProcessingBatch.empty(requireHandler(machine, pattern.inputFace(material))))
-            throw failure("production_machine_busy");
-        for (var material : pattern.outputs()) if (!ProcessingBatch.empty(requireHandler(machine, pattern.outputFace(material))))
-            throw failure("production_machine_busy");
     }
     /** Compatibility for internal prototype callers. Even these definitions are now stored as terminal documents. */
     @Deprecated
@@ -249,8 +321,13 @@ public final class ProductionPortBlockEntity extends BlockEntity {
         BlockEntity machine = requireMachine(); MachineAdapter adapter = adapter();
         if ((!snapshot.generic() && (adapter == null || !snapshot.kind().equals(adapter.kind())))
                 || !snapshot.furnace().equals(machineIdentity(machine))) throw failure("production_machine_changed");
+        requireAvailableEndpoints(terminal, id, snapshot);
         CompoundTag state;
-        if (snapshot.generic()) { requireEmptyHandlers(machine, snapshot.pattern()); state = new CompoundTag(); }
+        if (snapshot.generic()) {
+            var access = processingAccess(terminal, snapshot.pattern());
+            ProcessingBatch.requireReady(snapshot.pattern(), access.handlers()::get);
+            state = new CompoundTag();
+        }
         else {
             var current = adapter.resolve(level, snapshot.input(), snapshot.fuel());
             if (!snapshot.recipe().equals(current.recipe()) || !same(snapshot.result(), current.result())) throw failure("production_recipe_changed");
@@ -415,21 +492,21 @@ public final class ProductionPortBlockEntity extends BlockEntity {
     }
     private void runProcessingTick(StorageInventory inventory, BlockEntity machine) {
         ProcessingPattern pattern = program.pattern();
-        // Reacquire capabilities on each tick: sided wrappers can be invalidated or reconfigured.
-        java.util.Map<Direction, IItemHandler> handlers = new java.util.EnumMap<>(Direction.class);
-        for (var material : pattern.inputs()) handlers.computeIfAbsent(pattern.inputFace(material), face -> requireHandler(machine, face));
-        for (var material : pattern.outputs()) handlers.computeIfAbsent(pattern.outputFace(material), face -> requireHandler(machine, face));
+        StorageBlockEntity terminal = requireTerminal();
+        requireAvailableEndpoints(terminal, ownerProgram, program);
+        // Revalidate all endpoint bindings before touching any inventory; never retain capabilities across ticks.
+        ProcessingAccess access = processingAccess(terminal, pattern);
         if (processingBatch == null) {
-            requireEmptyHandlers(machine, pattern);
+            ProcessingBatch.requireReady(pattern, access.handlers()::get);
             processingBatch = new ProcessingBatch(pattern, this::changed); inFlight = true; changed();
         }
         if (!processingBatch.staged()) {
-            requireEmptyHandlers(machine, pattern);
-            processingBatch.reserve(inventory, handlers::get);
+            ProcessingBatch.requireReady(pattern, access.handlers()::get);
+            processingBatch.reserveRouted(inventory, access.handlers()::get);
         }
-        processingBatch.insert(handlers::get);
-        processingBatch.collect(handlers::get);
-        machine.setChanged();
+        processingBatch.insertRouted(access.handlers()::get);
+        processingBatch.collectRouted(access.handlers()::get);
+        for (BlockEntity target : access.machines()) target.setChanged();
         processingBatch.deliver(inventory);
         if (processingBatch.complete()) {
             processingBatch = null; inFlight = false; completed++; changed();

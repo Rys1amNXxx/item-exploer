@@ -76,8 +76,8 @@ public final class GenericProductionMenuTests {
     public static void processingPacketRoundTripsBoundedReferencesAndSides(GameTestHelper h) {
         var original = new ProcessingPatternRequest(17, Long.MIN_VALUE, Long.MAX_VALUE, 19, "多输入加工", Long.MIN_VALUE,
                 Direction.NORTH, Direction.SOUTH,
-                List.of(new PatternRow(1, Integer.MAX_VALUE, 64, 5), new PatternRow(2, -9, 1)),
-                Collections.nCopies(9, new PatternRow(3, 123, 16, 0)));
+                List.of(new PatternRow(1, Integer.MAX_VALUE, 64, 5, 12345L, 255, 2), new PatternRow(2, -9, 1)),
+                Collections.nCopies(9, new PatternRow(3, 123, 16, 0, Long.MIN_VALUE, 0, 3)));
         var buffer = new FriendlyByteBuf(Unpooled.buffer());
         try {
             original.encode(buffer);
@@ -89,6 +89,8 @@ public final class GenericProductionMenuTests {
         rejects(h, () -> new PatternRow(0, -10, 1), "Out-of-range saved row accepted");
         rejects(h, () -> new PatternRow(0, 1, 1, 6), "Out-of-range material face accepted");
         rejects(h, () -> new PatternRow(0, 1, 1, -2), "Invalid default material face accepted");
+        rejects(h, () -> new PatternRow(0, 1, 1, 0, 0, 256, 0), "Out-of-range slot accepted");
+        rejects(h, () -> new PatternRow(0, 1, 1, 0, 0, -1, 4), "Unknown material role accepted");
         rejects(h, () -> new ProcessingPatternRequest(1, 1, 1, 1, "x", 1, Direction.UP, Direction.DOWN,
                 Collections.nCopies(10, new PatternRow(0, 1, 1)), List.of(new PatternRow(0, 2, 1))), "Ten material rows accepted");
         var malformed = new FriendlyByteBuf(Unpooled.buffer());
@@ -131,6 +133,26 @@ public final class GenericProductionMenuTests {
                         && file.definition().pattern().outputs().get(0).stack().is(Items.GLASS)
                         && inventory.equals(f.terminal.inventory().save()),
                 "Depleted material references could not be edited safely without inventing items");
+        h.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void menuValidatesEndpointSlotAndRoleBeforeSaving(GameTestHelper h) {
+        Fixture f = fixture(h); var before = f.terminal.programs().save(); var stock = f.terminal.inventory().save();
+        List<PatternRow> output = List.of(new PatternRow(f.output, f.glass, 1, -1, Long.MIN_VALUE, 2, 0));
+        List<PatternRow> invalid = List.of(new PatternRow(f.input, f.sand, 2, -1, Long.MAX_VALUE, 0, 0),
+                new PatternRow(f.input, f.sand, 2, -1, Long.MIN_VALUE, 255, 0),
+                new PatternRow(f.input, f.sand, 2, -1, Long.MIN_VALUE, -1, 1),
+                new PatternRow(f.input, f.sand, 2, -1, Long.MIN_VALUE, 0, 3));
+        for (PatternRow row : invalid) f.menu.handle(request(f, f.menu.snapshot(), "非法端点", List.of(row), output));
+        h.assertTrue(before.equals(f.terminal.programs().save()) && stock.equals(f.terminal.inventory().save()),
+                "Forged endpoint, slot or role changed a document or inventory");
+        var valid = new PatternRow(f.input, f.sand, 2, -1, f.port.getBlockPos().asLong(), 0, 2);
+        f.menu.handle(request(f, f.menu.snapshot(), "补给样板", List.of(valid), output));
+        var pattern = f.terminal.programs().file(f.file).definition().pattern();
+        h.assertTrue(pattern.inputs().get(0).slot() == 0 && pattern.inputs().get(0).endpoint() == null
+                && pattern.inputs().get(0).role() == dev.itemexplorer.production.ProcessingPattern.Role.SUPPLY,
+                "Valid endpoint/slot/role was not saved or main endpoint was not normalized");
         h.succeed();
     }
 

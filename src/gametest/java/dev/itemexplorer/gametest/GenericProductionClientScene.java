@@ -48,6 +48,7 @@ import java.util.List;
 public final class GenericProductionClientScene {
     private static final String PROPERTY = "itemexplorer.genericProductionClientProbe", PROGRAM = "多物料加工.exe", DUPLICATE = "重复名称.exe";
     private static final BlockPos MACHINE = new BlockPos(80, 82, 80), PORT = MACHINE.east(), TERMINAL = MACHINE.east(12);
+    private static final BlockPos REMOTE_MACHINE = new BlockPos(86, 82, 82), REMOTE_PORT = REMOTE_MACHINE.north();
     private static boolean initialized, setupQueued, verifyQueued, done;
     private static volatile boolean fixtureReady, verified, rejectedVerified;
     private static volatile Throwable serverFailure;
@@ -110,6 +111,8 @@ public final class GenericProductionClientScene {
                 for (int x = PORT.getX() + 1; x < TERMINAL.getX(); x++)
                     level.setBlockAndUpdate(new BlockPos(x, PORT.getY(), PORT.getZ()), ModContent.DATA_CABLE_BLOCK.get().defaultBlockState());
                 level.setBlockAndUpdate(TERMINAL, ModContent.STORAGE_BLOCK.get().defaultBlockState());
+                level.setBlockAndUpdate(REMOTE_MACHINE, Blocks.BARREL.defaultBlockState());
+                level.setBlockAndUpdate(REMOTE_PORT, ModContent.PRODUCTION_BLOCK.get().defaultBlockState().setValue(ProductionPortBlock.FACING, Direction.NORTH));
                 var terminal = (StorageBlockEntity) level.getBlockEntity(TERMINAL);
                 var port = (ProductionPortBlockEntity) level.getBlockEntity(PORT);
                 check(terminal != null && port != null && terminal.inventory().total() == 0, "Fixture is not fresh");
@@ -230,7 +233,44 @@ public final class GenericProductionClientScene {
                 check(button(screen, "save").active && button(screen, "runAction").active,
                         "Changing a saved input folder discarded its server-owned sample reference");
                 log("PASS saved negative input references survive folder changes without requiring stock");
-                advance(29);
+                clickWidget(screen, "connectionTab"); advance(112);
+            }
+            case 112 -> { clickWidget(screen, "materialRoleButton"); advance(113); }
+            case 113 -> { if (pick(screen, "保留工具", ProcessingPattern.Role.RETAINED.ordinal(), null)) advance(114); }
+            case 114 -> {
+                check(!button(screen, "save").active, "A retained tool accepted an automatic slot");
+                clickWidget(screen, "materialEndpointButton"); advance(115);
+            }
+            case 115 -> { if (pick(screen, "木桶", REMOTE_PORT.asLong(), null)) advance(116); }
+            case 116 -> { clickWidget(screen, "materialSlotButton"); advance(117); }
+            case 117 -> { if (pick(screen, "1", 0, null)) advance(118); }
+            case 118 -> { clickWidget(screen, "materialRoleButton"); advance(119); }
+            case 119 -> { if (pick(screen, "按量补给", ProcessingPattern.Role.SUPPLY.ordinal(), null)) advance(120); }
+            case 120 -> {
+                check(button(screen, "save").active, "Valid remote supply configuration cannot be saved");
+                validateGeometry(screen); screenshot("generic-advanced-connections.png"); clickWidget(screen, "save"); advance(121);
+            }
+            case 121 -> {
+                if (field(screen, "pendingSave") != null || !captured("generic-advanced-connections.png")) return;
+                var input = ProcessingPattern.load(view.getCompound("Pattern")).inputs().get(0);
+                check(input.endpoint() != null && input.endpoint().port().equals(REMOTE_PORT)
+                        && input.slot() == 0 && input.role() == ProcessingPattern.Role.SUPPLY,
+                        "Endpoint, fixed slot or supply role did not survive an actual save");
+                log("PASS remote endpoint, fixed slot and supply role saved through real selectors and server validation");
+                clickWidget(screen, "materialRoleButton"); advance(122);
+            }
+            case 122 -> { if (pick(screen, "普通投入", ProcessingPattern.Role.STANDARD.ordinal(), null)) advance(123); }
+            case 123 -> { clickWidget(screen, "materialEndpointButton"); advance(124); }
+            case 124 -> { if (pick(screen, "主接口", Long.MIN_VALUE, null)) advance(125); }
+            case 125 -> { clickWidget(screen, "materialSlotButton"); advance(126); }
+            case 126 -> { if (pick(screen, "自动", -1, null)) advance(127); }
+            case 127 -> { clickWidget(screen, "save"); advance(128); }
+            case 128 -> {
+                if (field(screen, "pendingSave") != null) return;
+                var input = ProcessingPattern.load(view.getCompound("Pattern")).inputs().get(0);
+                check(input.endpoint() == null && input.slot() == -1 && input.role() == ProcessingPattern.Role.STANDARD,
+                        "Restoring default routing retained an advanced setting");
+                clickWidget(screen, "recipeTab"); advance(29);
             }
             case 29 -> { replaceText(screen, "amount", "4"); advance(30); }
             case 30 -> {

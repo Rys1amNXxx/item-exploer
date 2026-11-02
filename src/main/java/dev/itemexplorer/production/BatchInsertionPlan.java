@@ -30,13 +30,47 @@ final class BatchInsertionPlan {
     }
 
     static BatchInsertionPlan find(IItemHandler handler, List<ItemStack> materials, boolean allowPartial) {
+        int[] fixedSlots = new int[materials.size()]; Arrays.fill(fixedSlots, -1);
+        return find(handler, materials, fixedSlots, Set.of(), allowPartial);
+    }
+
+    static BatchInsertionPlan find(IItemHandler handler, List<ItemStack> materials, int[] fixedSlots,
+                                   Set<Integer> excludedAutomaticSlots, boolean allowPartial) {
         if (handler == null || handler.getSlots() < 1 || handler.getSlots() > ItemHandlerAccess.MAX_SLOTS) return null;
+        if (fixedSlots.length != materials.size()) throw new IllegalArgumentException("production_invalid_config");
+        List<Move> result = new ArrayList<>();
+        ItemStack[] fixedItems = new ItemStack[handler.getSlots()];
+        int[] fixedAmounts = new int[handler.getSlots()];
+        for (int row = 0; row < materials.size(); row++) {
+            int slot = fixedSlots[row]; ItemStack sample = materials.get(row);
+            if (slot < -1 || slot >= handler.getSlots()) return null;
+            if (slot < 0 || sample.isEmpty()) continue;
+            ItemStack present = handler.getStackInSlot(slot);
+            if ((!present.isEmpty() && !ProcessingPattern.matches(present, sample))
+                    || (fixedItems[slot] != null && !ProcessingPattern.matches(fixedItems[slot], sample))) {
+                if (!allowPartial) return null;
+                continue;
+            }
+            int room = Math.min(handler.getSlotLimit(slot), sample.getMaxStackSize()) - present.getCount();
+            int requested = Math.min(room, sample.getCount() + fixedAmounts[slot]);
+            int amount = 0;
+            if (requested > 0) {
+                ItemStack offered = sample.copyWithCount(requested);
+                amount = Math.min(sample.getCount(), Math.max(0,
+                        accepted(offered, handler.insertItem(slot, offered.copy(), true)) - fixedAmounts[slot]));
+            }
+            if (amount != sample.getCount() && !allowPartial) return null;
+            if (amount > 0) {
+                fixedItems[slot] = sample; fixedAmounts[slot] += amount;
+                result.add(new Move(row, slot, amount));
+            }
+        }
         List<ItemStack> kinds = new ArrayList<>();
         int[] rowKinds = new int[materials.size()];
         for (int row = 0; row < materials.size(); row++) {
             ItemStack stack = materials.get(row);
             rowKinds[row] = -1;
-            if (stack.isEmpty()) continue;
+            if (stack.isEmpty() || fixedSlots[row] >= 0) continue;
             for (int kind = 0; kind < kinds.size(); kind++) if (ProcessingPattern.matches(kinds.get(kind), stack)) {
                 rowKinds[row] = kind; break;
             }
@@ -49,16 +83,18 @@ final class BatchInsertionPlan {
 
         List<Slot> slots = new ArrayList<>();
         for (int slot = 0; slot < handler.getSlots(); slot++) {
+            if (excludedAutomaticSlots.contains(slot)) continue;
             ItemStack present = handler.getStackInSlot(slot);
             int[] capacity = new int[kinds.size()];
             for (int kind = 0; kind < kinds.size(); kind++) {
                 ItemStack sample = kinds.get(kind);
                 if (!present.isEmpty() && !ProcessingPattern.matches(present, sample)) continue;
-                int room = Math.min(handler.getSlotLimit(slot), sample.getMaxStackSize()) - present.getCount();
+                if (fixedItems[slot] != null && !ProcessingPattern.matches(fixedItems[slot], sample)) continue;
+                int room = Math.min(handler.getSlotLimit(slot), sample.getMaxStackSize()) - present.getCount() - fixedAmounts[slot];
                 int count = Math.min(demand[kind], room);
                 if (count <= 0) continue;
-                ItemStack offered = sample.copyWithCount(count);
-                capacity[kind] = accepted(offered, handler.insertItem(slot, offered.copy(), true));
+                ItemStack offered = sample.copyWithCount(count + fixedAmounts[slot]);
+                capacity[kind] = Math.max(0, accepted(offered, handler.insertItem(slot, offered.copy(), true)) - fixedAmounts[slot]);
             }
             Slot candidate = new Slot(slot, capacity);
             if (candidate.choices() > 0) slots.add(candidate);
@@ -75,7 +111,6 @@ final class BatchInsertionPlan {
             search.allocatePartial();
         }
 
-        List<Move> result = new ArrayList<>();
         int[] left = materials.stream().mapToInt(ItemStack::getCount).toArray();
         for (int slot = 0; slot < slots.size(); slot++) {
             int kind = search.assigned[slot], count = search.amounts[slot];

@@ -82,6 +82,17 @@ public final class ProductionPortMenu extends AbstractContainerMenu {
             machine.putLong("Pos", position); machine.putString("Id", port.identity().toString());
             String machineType = port.machineType();
             machine.putString("Type", machineType); machine.putBoolean("Connected", !machineType.isEmpty());
+            int[] slots = new int[Direction.values().length];
+            if (!machineType.isEmpty()) {
+                try {
+                    ProcessingPattern.Endpoint endpoint = port.processingEndpoint();
+                    CompoundTag endpointTag = new CompoundTag(); endpointTag.putLong("Pos", endpoint.port().asLong());
+                    endpointTag.putUUID("Port", endpoint.portId()); endpointTag.putUUID("Machine", endpoint.machineId());
+                    machine.put("Endpoint", endpointTag);
+                    for (Direction face : Direction.values()) slots[face.ordinal()] = port.processingSlots(face);
+                } catch (IllegalArgumentException unavailable) { }
+            }
+            machine.putIntArray("Faces", slots);
             machine.putString("Label", player.level().hasChunkAt(port.machinePosition())
                     ? player.level().getBlockState(port.machinePosition()).getBlock().getDescriptionId() : "gui.itemexplorer.production_unloaded_machine");
             machine.putString("Coordinates", port.machinePosition().toShortString()); machineTags.add(machine);
@@ -202,8 +213,8 @@ public final class ProductionPortMenu extends AbstractContainerMenu {
             if (!"item_handler".equals(port.machineType())) throw new IllegalArgumentException("production_machine_changed");
             ProcessingPattern previous = file.configured() && file.definition().generic() ? file.definition().pattern() : null;
             ProcessingPattern pattern = new ProcessingPattern(request.inputFace(), request.outputFace(),
-                    resolveRows(request.inputs(), previous == null ? List.of() : previous.inputs(), true),
-                    resolveRows(request.outputs(), previous == null ? List.of() : previous.outputs(), false));
+                    resolveRows(request.inputs(), previous == null ? List.of() : previous.inputs(), true, request.inputFace()),
+                    resolveRows(request.outputs(), previous == null ? List.of() : previous.outputs(), false, request.outputFace()));
             var definition = port.createProcessingDefinition(request.name(), pattern);
             terminal.programs().rename(fileId, request.name());
             terminal.programs().configure(fileId, definition, port.getBlockPos(), port.identity());
@@ -214,7 +225,7 @@ public final class ProductionPortMenu extends AbstractContainerMenu {
     }
 
     private List<ProcessingPattern.Material> resolveRows(List<StorageNetwork.PatternRow> rows,
-                                                         List<ProcessingPattern.Material> previous, boolean input) {
+                                                         List<ProcessingPattern.Material> previous, boolean input, Direction defaultFace) {
         if (rows.isEmpty() || rows.size() > 9) throw new IllegalArgumentException("production_invalid_config");
         List<ProcessingPattern.Material> materials = new ArrayList<>(rows.size());
         for (var row : rows) {
@@ -230,7 +241,15 @@ public final class ProductionPortMenu extends AbstractContainerMenu {
                 stack = previous.get(index).stack();
             }
             if (stack.isEmpty() || row.count() > stack.getMaxStackSize()) throw new IllegalArgumentException("production_invalid_config");
-            stack.setCount(row.count()); materials.add(new ProcessingPattern.Material(row.folder(), stack, row.face() < 0 ? null : Direction.values()[row.face()]));
+            Direction face = row.face() < 0 ? null : Direction.values()[row.face()];
+            long endpointPos = row.endpointPos() == Long.MIN_VALUE ? selectedMachine : row.endpointPos();
+            var endpointPort = TerminalPrograms.reachable(terminal, endpointPos);
+            ProcessingPattern.Endpoint endpoint = endpointPort.processingEndpoint();
+            int slots = endpointPort.processingSlots(face == null ? defaultFace : face);
+            if (slots <= 0) throw new IllegalArgumentException("production_endpoint_unavailable");
+            if (row.slot() >= slots) throw new IllegalArgumentException("production_invalid_slot");
+            stack.setCount(row.count()); materials.add(new ProcessingPattern.Material(row.folder(), stack, face,
+                    endpointPos == selectedMachine ? null : endpoint, row.slot(), ProcessingPattern.Role.values()[row.role()]));
         }
         return materials;
     }

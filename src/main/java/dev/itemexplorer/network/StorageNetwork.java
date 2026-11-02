@@ -8,6 +8,7 @@ import dev.itemexplorer.menu.LogisticsPortMenu;
 import dev.itemexplorer.menu.ProductionPortMenu;
 import dev.itemexplorer.menu.BaseStationMenu;
 import dev.itemexplorer.storage.StorageSearch;
+import dev.itemexplorer.production.ProcessingPattern;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.core.Direction;
 import net.minecraft.network.FriendlyByteBuf;
@@ -30,8 +31,8 @@ import java.util.UUID;
 import java.util.function.Supplier;
 
 public final class StorageNetwork {
-    // The program editor requires persistent save receipts before a queued launch.
-    private static final String VERSION = "20";
+    // Processing rows include independent endpoints, slots and material roles.
+    private static final String VERSION = "21";
     private static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
             new ResourceLocation(ItemExplorer.MOD_ID, "storage"), () -> VERSION, VERSION::equals, VERSION::equals);
 
@@ -276,10 +277,14 @@ public final class StorageNetwork {
     public enum ProductionAction { SAVE, START, CANCEL, SELECT_MACHINE, BACK }
 
     /** Positive IDs refer to inventory entries; negative IDs refer to an existing saved row. */
-    public record PatternRow(int folder, int entry, int count, int face) {
+    public record PatternRow(int folder, int entry, int count, int face, long endpointPos, int slot, int role) {
         public PatternRow(int folder, int entry, int count) { this(folder, entry, count, -1); }
+        public PatternRow(int folder, int entry, int count, int face) {
+            this(folder, entry, count, face, Long.MIN_VALUE, -1, ProcessingPattern.Role.STANDARD.ordinal());
+        }
         public PatternRow {
-            if (folder < 0 || entry == 0 || entry < -9 || count < 1 || count > 9999 || face < -1 || face > 5)
+            if (folder < 0 || entry == 0 || entry < -9 || count < 1 || count > 9999 || face < -1 || face > 5
+                    || slot < -1 || slot >= 256 || role < 0 || role >= ProcessingPattern.Role.values().length)
                 throw new IllegalArgumentException("production_invalid_config");
         }
     }
@@ -298,12 +303,16 @@ public final class StorageNetwork {
             int length = buf.readVarInt();
             if (length < 1 || length > 9) throw new IllegalArgumentException("production_invalid_config");
             List<PatternRow> rows = new ArrayList<>(length);
-            for (int i = 0; i < length; i++) rows.add(new PatternRow(buf.readVarInt(), buf.readVarInt(), buf.readVarInt(), buf.readVarInt()));
+            for (int i = 0; i < length; i++) rows.add(new PatternRow(buf.readVarInt(), buf.readVarInt(), buf.readVarInt(),
+                    buf.readVarInt(), buf.readLong(), buf.readVarInt(), buf.readVarInt()));
             return rows;
         }
         private static void writeRows(FriendlyByteBuf buf, List<PatternRow> rows) {
             buf.writeVarInt(rows.size());
-            for (PatternRow row : rows) { buf.writeVarInt(row.folder()); buf.writeVarInt(row.entry()); buf.writeVarInt(row.count()); buf.writeVarInt(row.face()); }
+            for (PatternRow row : rows) {
+                buf.writeVarInt(row.folder()); buf.writeVarInt(row.entry()); buf.writeVarInt(row.count()); buf.writeVarInt(row.face());
+                buf.writeLong(row.endpointPos()); buf.writeVarInt(row.slot()); buf.writeVarInt(row.role());
+            }
         }
         public static ProcessingPatternRequest decode(FriendlyByteBuf buf) {
             return new ProcessingPatternRequest(buf.readVarInt(), buf.readLong(), buf.readLong(), buf.readLong(),

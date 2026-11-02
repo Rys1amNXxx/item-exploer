@@ -2,6 +2,7 @@ package dev.itemexplorer.production;
 
 import dev.itemexplorer.storage.StorageInventory;
 import net.minecraft.core.Direction;
+import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
@@ -10,20 +11,33 @@ import net.minecraftforge.items.ItemHandlerHelper;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 /** A player-authored batch. Faces belong to the machine, not to the interface. */
 public record ProcessingPattern(Direction inputFace, Direction outputFace,
                                 List<Material> inputs, List<Material> outputs) {
     public static final int MAX_MATERIALS = 9;
 
-    public record Material(int folder, ItemStack stack, Direction face) {
+    public enum Role { STANDARD, RETAINED, SUPPLY, OPTIONAL }
+
+    public record Endpoint(BlockPos port, UUID portId, UUID machineId) {
+        public Endpoint {
+            if (port == null || portId == null || machineId == null) throw new IllegalArgumentException("production_invalid_config");
+            port = port.immutable();
+        }
+    }
+
+    public record Material(int folder, ItemStack stack, Direction face, Endpoint endpoint, int slot, Role role) {
         public Material {
             if (folder < 0 || stack == null || stack.isEmpty() || stack.getCount() < 1
+                    || slot < -1 || slot >= ItemHandlerAccess.MAX_SLOTS || role == null
+                    || ((role == Role.RETAINED || role == Role.SUPPLY) && slot < 0)
                     || stack.getCount() > stack.getMaxStackSize()
                     || stack.save(new CompoundTag()).sizeInBytes() > StorageInventory.MAX_ITEM_BYTES
                     || !StorageInventory.acceptsItem(stack)) throw new IllegalArgumentException("production_invalid_config");
             stack = stack.copy();
         }
+        public Material(int folder, ItemStack stack, Direction face) { this(folder, stack, face, null, -1, Role.STANDARD); }
         public Material(int folder, ItemStack stack) { this(folder, stack, null); }
         @Override public ItemStack stack() { return stack.copy(); }
     }
@@ -33,6 +47,10 @@ public record ProcessingPattern(Direction inputFace, Direction outputFace,
                 || inputs.isEmpty() || inputs.size() > MAX_MATERIALS || outputs.isEmpty() || outputs.size() > MAX_MATERIALS)
             throw new IllegalArgumentException("production_invalid_config");
         inputs = List.copyOf(inputs); outputs = List.copyOf(outputs);
+        if (inputs.stream().anyMatch(material -> material.role() == Role.OPTIONAL)
+                || outputs.stream().anyMatch(material -> material.role() == Role.RETAINED || material.role() == Role.SUPPLY)
+                || outputs.stream().noneMatch(material -> material.role() == Role.STANDARD))
+            throw new IllegalArgumentException("production_invalid_config");
         // The generic interface cannot distinguish a returned catalyst from an unprocessed input.
         for (Material input : inputs) for (Material output : outputs)
             if (matches(input.stack(), output.stack())) throw new IllegalArgumentException("production_invalid_config");
@@ -63,6 +81,13 @@ public record ProcessingPattern(Direction inputFace, Direction outputFace,
             CompoundTag row = new CompoundTag(); row.putInt("Folder", material.folder());
             row.put("Stack", material.stack().save(new CompoundTag())); list.add(row);
             if (material.face() != null) row.putInt("Face", material.face().get3DDataValue());
+            if (material.slot() >= 0) row.putInt("Slot", material.slot());
+            if (material.role() != Role.STANDARD) row.putString("Role", material.role().name());
+            if (material.endpoint() != null) {
+                CompoundTag endpoint = new CompoundTag(); endpoint.putLong("Port", material.endpoint().port().asLong());
+                endpoint.putUUID("PortId", material.endpoint().portId()); endpoint.putUUID("MachineId", material.endpoint().machineId());
+                row.put("Endpoint", endpoint);
+            }
         }
         return list;
     }
@@ -92,7 +117,16 @@ public record ProcessingPattern(Direction inputFace, Direction outputFace,
                 if (index < 0 || index >= 6) throw new IllegalArgumentException("production_invalid_data");
                 face = Direction.from3DDataValue(index);
             }
-            result.add(new Material(row.getInt("Folder"), FurnaceProgram.stack(row, "Stack", false), face));
+            int slot = -1; Role role = Role.STANDARD; Endpoint endpoint = null;
+            if (row.contains("Slot")) { FurnaceProgram.require(row, "Slot", Tag.TAG_INT); slot = row.getInt("Slot"); }
+            if (row.contains("Role")) { FurnaceProgram.require(row, "Role", Tag.TAG_STRING); role = Role.valueOf(row.getString("Role")); }
+            if (row.contains("Endpoint")) {
+                FurnaceProgram.require(row, "Endpoint", Tag.TAG_COMPOUND); CompoundTag address = row.getCompound("Endpoint");
+                FurnaceProgram.require(address, "Port", Tag.TAG_LONG);
+                if (!address.hasUUID("PortId") || !address.hasUUID("MachineId")) throw new IllegalArgumentException("production_invalid_data");
+                endpoint = new Endpoint(BlockPos.of(address.getLong("Port")), address.getUUID("PortId"), address.getUUID("MachineId"));
+            }
+            result.add(new Material(row.getInt("Folder"), FurnaceProgram.stack(row, "Stack", false), face, endpoint, slot, role));
         }
         return result;
     }

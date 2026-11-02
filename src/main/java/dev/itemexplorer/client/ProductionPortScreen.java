@@ -4,6 +4,7 @@ import dev.itemexplorer.menu.ProductionPortMenu;
 import dev.itemexplorer.network.StorageNetwork;
 import dev.itemexplorer.production.ProcessingPattern;
 import net.minecraft.Util;
+import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
@@ -31,23 +32,36 @@ import net.minecraft.client.gui.components.AbstractWidget;
 public final class ProductionPortScreen extends AbstractContainerScreen<ProductionPortMenu> {
     private record FolderRow(int id, String path) {}
     private record EntryRow(int id, int folder, ItemStack stack, long count, boolean smeltable, boolean fuel) {}
-    private record MachineRow(long pos, String type, String label, boolean connected) {}
+    private record MachineRow(long pos, String type, String label, boolean connected,
+                              ProcessingPattern.Endpoint endpoint, int[] faces) {
+        int slots(Direction face) { return face.ordinal() < faces.length ? faces[face.ordinal()] : 0; }
+    }
     private static final class MaterialRow {
         int folder, entry, amount;
         ItemStack stack;
         Direction face;
+        ProcessingPattern.Endpoint endpoint;
+        int slot = -1;
+        ProcessingPattern.Role role = ProcessingPattern.Role.STANDARD;
         MaterialRow(int folder, int entry, ItemStack stack, int amount) { this(folder, entry, stack, amount, null); }
         MaterialRow(int folder, int entry, ItemStack stack, int amount, Direction face) {
             this.folder = folder; this.entry = entry; this.stack = stack.copy(); this.amount = amount; this.face = face;
         }
-        MaterialRow copy() { return new MaterialRow(folder, entry, stack, amount, face); }
+        MaterialRow copy() {
+            MaterialRow copy = new MaterialRow(folder, entry, stack, amount, face);
+            copy.endpoint = endpoint; copy.slot = slot; copy.role = role; return copy;
+        }
     }
     private record Draft(String name, String count, int inputFolder, int fuelFolder, int outputFolder,
                          int inputEntry, int fuelEntry, List<MaterialRow> inputs, List<MaterialRow> outputs,
                          Direction inputFace, Direction outputFace) {}
 
     private record PickerOption(long id, String label, String detail, ItemStack stack) {}
-    private record TotalRow(ItemStack stack, long amount, int folder, boolean estimated) {}
+    private record TotalRow(ItemStack stack, long amount, int folder, boolean estimated, ProcessingPattern.Role role) {
+        TotalRow(ItemStack stack, long amount, int folder, boolean estimated) {
+            this(stack, amount, folder, estimated, ProcessingPattern.Role.STANDARD);
+        }
+    }
     private record PendingSave(long serial, long session, long context, long revision, long machine, CompoundTag expected, int runs, long deadline) {}
     private final List<FolderRow> folders = new ArrayList<>();
     private final List<EntryRow> entries = new ArrayList<>();
@@ -59,6 +73,7 @@ public final class ProductionPortScreen extends AbstractContainerScreen<Producti
     private EditBox name, count, amount, search;
     private Button machineButton, recipeTab, connectionTab, runTab, changeMaterial, deleteMaterial, materialFolder;
     private Button inputFaceButton, outputFaceButton, materialSelector, materialFaceButton, save, runAction, cancel, back;
+    private Button materialEndpointButton, materialSlotButton, materialRoleButton;
     private Button inputUp, inputDown, outputUp, outputDown, pickerBack, pickerPrevious, pickerNext;
     private int inputFolder, fuelFolder, outputFolder, inputEntry, fuelEntry, page, rowIndex, inputScroll, outputScroll, pickerOffset;
     private Direction inputFace = Direction.UP, outputFace = Direction.DOWN;
@@ -98,7 +113,10 @@ public final class ProductionPortScreen extends AbstractContainerScreen<Producti
         inputFaceButton = button(10, 89, 147, Component.empty(), b -> openFacePicker(0));
         outputFaceButton = button(163, 89, 147, Component.empty(), b -> openFacePicker(1));
         materialSelector = button(10, 113, 300, Component.empty(), b -> openMaterialPicker());
-        materialFaceButton = button(10, 137, 300, Component.empty(), b -> openFacePicker(2));
+        materialEndpointButton = button(10, 136, 147, Component.empty(), b -> openEndpointPicker());
+        materialSlotButton = button(163, 136, 147, Component.empty(), b -> openSlotPicker());
+        materialFaceButton = button(10, 159, 147, Component.empty(), b -> openFacePicker(2));
+        materialRoleButton = button(163, 159, 147, Component.empty(), b -> openRolePicker());
         count = addRenderableWidget(new EditBox(font, leftPos + 64, topPos + 73, 54, 16, label("count")));
         count.setMaxLength(4); count.setFilter(value -> value.matches("[0-9]{0,4}"));
         inputUp = button(140, 106, 16, Component.literal("↑"), b -> scrollTotals(false, -1));
@@ -224,7 +242,8 @@ public final class ProductionPortScreen extends AbstractContainerScreen<Producti
     private void loadMaterials(List<MaterialRow> target, List<ProcessingPattern.Material> source) {
         for (int i = 0; i < source.size(); i++) {
             var material = source.get(i);
-            target.add(new MaterialRow(material.folder(), -i - 1, material.stack(), material.stack().getCount(), material.face()));
+            MaterialRow row = new MaterialRow(material.folder(), -i - 1, material.stack(), material.stack().getCount(), material.face());
+            row.endpoint = material.endpoint(); row.slot = material.slot(); row.role = material.role(); target.add(row);
         }
     }
     private void rebindSavedReferences(CompoundTag view) {
@@ -258,11 +277,14 @@ public final class ProductionPortScreen extends AbstractContainerScreen<Producti
         updatingAmount = true; amount.setValue(Integer.toString(currentMaterial() == null ? 1 : currentMaterial().amount)); updatingAmount = false;
     }
     private static List<StorageNetwork.PatternRow> requestRows(List<MaterialRow> rows) {
-        return rows.stream().map(row -> new StorageNetwork.PatternRow(row.folder, row.entry, row.amount, row.face == null ? -1 : row.face.ordinal())).toList();
+        return rows.stream().map(row -> new StorageNetwork.PatternRow(row.folder, row.entry, row.amount,
+                row.face == null ? -1 : row.face.ordinal(), row.endpoint == null ? Long.MIN_VALUE : row.endpoint.port().asLong(),
+                row.slot, row.role.ordinal())).toList();
     }
     private static List<ProcessingPattern.Material> patternMaterials(List<MaterialRow> rows) {
         return rows.stream().map(row -> {
-            ItemStack stack = row.stack.copy(); stack.setCount(row.amount); return new ProcessingPattern.Material(row.folder, stack, row.face);
+            ItemStack stack = row.stack.copy(); stack.setCount(row.amount);
+            return new ProcessingPattern.Material(row.folder, stack, row.face, row.endpoint, row.slot, row.role);
         }).toList();
     }
     private ProcessingPattern draftPattern() {
@@ -288,7 +310,16 @@ public final class ProductionPortScreen extends AbstractContainerScreen<Producti
             if (folders.stream().noneMatch(folder -> folder.id() == row.folder)) return label("select_missing_folder");
             if (row.entry > 0 && entries.stream().noneMatch(entry -> entry.id() == row.entry && (output || entry.folder() == row.folder)
                     && ItemStack.isSameItemSameTags(entry.stack(), row.stack))) return label("select_missing_sample");
+            MachineRow endpoint = materialMachine(row);
+            if (endpoint == null || !endpoint.connected() || endpoint.endpoint() == null
+                    || row.endpoint != null && !row.endpoint.equals(endpoint.endpoint())) return label("select_missing_endpoint");
+            int slots = endpoint.slots(materialFace(row, output));
+            if (slots <= 0) return label("select_available_side");
+            if (row.slot >= slots) return label("select_valid_slot");
+            if ((row.role == ProcessingPattern.Role.RETAINED || row.role == ProcessingPattern.Role.SUPPLY) && row.slot < 0)
+                return label("role_needs_slot");
         }
+        if (patternOutputs.stream().noneMatch(row -> row.role == ProcessingPattern.Role.STANDARD)) return label("required_output_needed");
         for (MaterialRow input : patternInputs) for (MaterialRow output : patternOutputs)
             if (ProcessingPattern.matches(input.stack, output.stack)) return label("remove_input_output_overlap");
         return null;
@@ -389,6 +420,53 @@ public final class ProductionPortScreen extends AbstractContainerScreen<Producti
         openPicker(label(generic() && outputTabSelected ? "pick_output" : "pick_input"), entries.stream().filter(entry -> generic() || (rowIndex == 1 ? entry.fuel() : entry.smeltable())).map(entry -> new PickerOption(entry.id(), entry.stack().getHoverName().getString(), folderName(entry.folder()) + " · " + entry.count(), entry.stack())).toList(), option -> selectItemEntry((int) option.id()));
     }
     private void openFolderPicker() { openPicker(label(outputTabSelected ? "pick_destination" : "pick_source"), folders.stream().map(folder -> new PickerOption(folder.id(), folder.path(), "", ItemStack.EMPTY)).toList(), option -> selectFolder((int) option.id())); }
+    private MachineRow materialMachine(MaterialRow row) {
+        long pos = row.endpoint == null ? machinePos : row.endpoint.port().asLong();
+        return machines.stream().filter(machine -> machine.pos() == pos).findFirst().orElse(null);
+    }
+    private Direction materialFace(MaterialRow row, boolean output) { return row.face == null ? output ? outputFace : inputFace : row.face; }
+    private Component endpointLabel(MaterialRow row) {
+        if (row == null || row.endpoint == null) return label("main_endpoint");
+        MachineRow machine = materialMachine(row);
+        return machine == null ? label("missing_endpoint", row.endpoint.port().toShortString()) : Component.literal(machine.label());
+    }
+    private Component roleLabel(ProcessingPattern.Role role, boolean output) {
+        return label("role_" + role.name().toLowerCase(Locale.ROOT) + (role == ProcessingPattern.Role.STANDARD ? output ? "_output" : "_input" : ""));
+    }
+    private Component roleHint(ProcessingPattern.Role role, boolean output) {
+        return label("role_" + role.name().toLowerCase(Locale.ROOT) + (role == ProcessingPattern.Role.STANDARD ? output ? "_output" : "_input" : "") + "_hint");
+    }
+    private void openEndpointPicker() {
+        if (currentMaterial() == null) return;
+        List<PickerOption> options = new ArrayList<>();
+        options.add(new PickerOption(Long.MIN_VALUE, label("main_endpoint").getString(), label("main_endpoint_hint").getString(), ItemStack.EMPTY));
+        for (MachineRow machine : machines) if (machine.pos() != machinePos && machine.connected() && machine.endpoint() != null)
+            options.add(new PickerOption(machine.pos(), machine.label(), label("connected").getString(), ItemStack.EMPTY));
+        openPicker(label("pick_endpoint"), options, option -> {
+            MaterialRow row = currentMaterial(); if (row == null) return;
+            if (option.id() == Long.MIN_VALUE) row.endpoint = null;
+            else machines.stream().filter(machine -> machine.pos() == option.id() && machine.connected() && machine.endpoint() != null)
+                    .findFirst().ifPresent(machine -> row.endpoint = machine.endpoint());
+        });
+    }
+    private void openSlotPicker() {
+        MaterialRow row = currentMaterial(); if (row == null) return;
+        MachineRow machine = materialMachine(row);
+        int slots = machine == null ? 0 : machine.slots(materialFace(row, outputTabSelected));
+        List<PickerOption> options = new ArrayList<>();
+        options.add(new PickerOption(-1, label("automatic_slot").getString(), label("automatic_slot_hint").getString(), ItemStack.EMPTY));
+        for (int slot = 0; slot < slots; slot++) options.add(new PickerOption(slot, label("numbered_slot", slot + 1).getString(), label("numbered_slot_hint").getString(), ItemStack.EMPTY));
+        openPicker(label("pick_slot"), options, option -> { if (currentMaterial() != null) currentMaterial().slot = (int) option.id(); });
+    }
+    private void openRolePicker() {
+        if (currentMaterial() == null) return;
+        List<PickerOption> options = new ArrayList<>();
+        for (ProcessingPattern.Role role : ProcessingPattern.Role.values()) {
+            if (outputTabSelected ? role != ProcessingPattern.Role.STANDARD && role != ProcessingPattern.Role.OPTIONAL : role == ProcessingPattern.Role.OPTIONAL) continue;
+            options.add(new PickerOption(role.ordinal(), roleLabel(role, outputTabSelected).getString(), roleHint(role, outputTabSelected).getString(), ItemStack.EMPTY));
+        }
+        openPicker(label("pick_role"), options, option -> { if (currentMaterial() != null) currentMaterial().role = ProcessingPattern.Role.values()[(int) option.id()]; });
+    }
     private void openFacePicker(int target) {
         List<PickerOption> options = new ArrayList<>();
         if (target == 2) options.add(new PickerOption(-1, label("default_face").getString(), label("inherits_face").getString(), ItemStack.EMPTY));
@@ -444,7 +522,15 @@ public final class ProductionPortScreen extends AbstractContainerScreen<Producti
         CompoundTag view = menu.view();
         if (seen != view) {
             seen = view; folders.clear(); entries.clear(); machines.clear();
-            for (Tag tag : view.getList("Machines", Tag.TAG_COMPOUND)) { CompoundTag machine = (CompoundTag) tag; String machineName = Component.translatable(machine.getString("Label")).getString(); if (!machine.getString("Coordinates").isEmpty()) machineName += " @ " + machine.getString("Coordinates"); machines.add(new MachineRow(machine.getLong("Pos"), machine.getString("Type"), machineName, machine.getBoolean("Connected"))); }
+            for (Tag tag : view.getList("Machines", Tag.TAG_COMPOUND)) {
+                CompoundTag machine = (CompoundTag) tag; String machineName = Component.translatable(machine.getString("Label")).getString();
+                if (!machine.getString("Coordinates").isEmpty()) machineName += " @ " + machine.getString("Coordinates");
+                CompoundTag endpoint = machine.getCompound("Endpoint");
+                ProcessingPattern.Endpoint identity = endpoint.hasUUID("Port") && endpoint.hasUUID("Machine")
+                        ? new ProcessingPattern.Endpoint(BlockPos.of(endpoint.getLong("Pos")), endpoint.getUUID("Port"), endpoint.getUUID("Machine")) : null;
+                machines.add(new MachineRow(machine.getLong("Pos"), machine.getString("Type"), machineName,
+                        machine.getBoolean("Connected"), identity, machine.getIntArray("Faces")));
+            }
             ListTag nodes = view.getList("Folders", Tag.TAG_COMPOUND); if (!nodes.isEmpty()) { folders.add(new FolderRow(0, label("root").getString())); appendFolders(nodes, 0, "", 1, new HashSet<>()); }
             for (Tag tag : view.getList("Entries", Tag.TAG_COMPOUND)) { CompoundTag entry = (CompoundTag) tag; entries.add(new EntryRow(entry.getInt("Id"), entry.getInt("Folder"), ItemStack.of(entry.getCompound("Stack")), entry.getLong("Count"), entry.getBoolean("Smeltable"), entry.getBoolean("Fuel"))); }
             if (view.contains("Session")) {
@@ -489,12 +575,21 @@ public final class ProductionPortScreen extends AbstractContainerScreen<Producti
         int folder = generic ? currentMaterial() == null ? 0 : currentMaterial().folder : outputTabSelected ? outputFolder : rowIndex == 1 ? fuelFolder : inputFolder;
         textButton(materialFolder, label(outputTabSelected ? "output_folder" : !generic && rowIndex == 1 ? brewing() ? "reagent_folder" : "fuel_folder" : "input_folder", folderName(folder)), 284);
         inputFaceButton.visible = outputFaceButton.visible = materialFaceButton.visible = connection && generic;
+        materialEndpointButton.visible = materialSlotButton.visible = materialRoleButton.visible = connection && generic;
         materialSelector.visible = connection;
         materialSelector.setY(topPos + (generic ? 113 : 89));
         textButton(inputFaceButton, label("input_face", faceLabel(inputFace)), 137); textButton(outputFaceButton, label("output_face", faceLabel(outputFace)), 137);
         inputFaceButton.setTooltip(Tooltip.create(label("connection_note"))); outputFaceButton.setTooltip(Tooltip.create(label("connection_note")));
-        textButton(materialSelector, selectedMaterialLabel(), 284); textButton(materialFaceButton, label("material_face", currentMaterial() == null || currentMaterial().face == null ? label("default_face") : faceLabel(currentMaterial().face)), 284);
+        textButton(materialSelector, selectedMaterialLabel(), 284); textButton(materialFaceButton, label("material_face", currentMaterial() == null || currentMaterial().face == null ? label("default_face") : faceLabel(currentMaterial().face)), 137);
         materialSelector.active = edit && (!generic || !patternInputs.isEmpty() || !patternOutputs.isEmpty()); materialFaceButton.active = edit && currentMaterial() != null;
+        MaterialRow material = currentMaterial();
+        textButton(materialEndpointButton, label("material_endpoint", endpointLabel(material)), 137);
+        textButton(materialSlotButton, label("material_slot", material == null || material.slot < 0 ? label("automatic_slot") : label("numbered_slot", material.slot + 1)), 137);
+        ProcessingPattern.Role role = material == null ? ProcessingPattern.Role.STANDARD : material.role;
+        textButton(materialRoleButton, label("material_role", roleLabel(role, outputTabSelected)), 137);
+        materialRoleButton.setTooltip(Tooltip.create(roleHint(role, outputTabSelected)));
+        materialEndpointButton.active = materialSlotButton.active = materialRoleButton.active = edit && material != null;
+        amount.setTooltip(Tooltip.create(generic && material != null ? roleHint(role, outputTabSelected) : label("amount_hint")));
         count.visible = run && !running; inputUp.visible = inputDown.visible = outputUp.visible = outputDown.visible = run;
         inputScroll = Math.min(inputScroll, Math.max(0, totals(false).size() - 4)); outputScroll = Math.min(outputScroll, Math.max(0, totals(true).size() - 4));
         inputUp.active = inputScroll > 0; inputDown.active = inputScroll + 4 < totals(false).size(); outputUp.active = outputScroll > 0; outputDown.active = outputScroll + 4 < totals(true).size();
@@ -516,7 +611,7 @@ public final class ProductionPortScreen extends AbstractContainerScreen<Producti
             if (view.contains("Pattern", Tag.TAG_COMPOUND)) {
                 try {
                     ProcessingPattern pattern = ProcessingPattern.load(view.getCompound("Pattern"));
-                    for (var material : output ? pattern.outputs() : pattern.inputs()) result.add(new TotalRow(material.stack(), (long) material.stack().getCount() * runs, material.folder(), false));
+                    for (var material : output ? pattern.outputs() : pattern.inputs()) result.add(materialTotal(material.stack(), material.stack().getCount(), material.folder(), material.role(), runs));
                 } catch (IllegalArgumentException ignored) { }
             } else if (output) {
                 ItemStack stack = ItemStack.of(view.getCompound("Result"));
@@ -530,12 +625,25 @@ public final class ProductionPortScreen extends AbstractContainerScreen<Producti
             return result;
         }
         int runs = Math.max(0, runCount()); List<TotalRow> result = new ArrayList<>();
-        if (generic()) for (MaterialRow material : output ? patternOutputs : patternInputs) result.add(new TotalRow(material.stack, (long) material.amount * runs, material.folder, false));
+        if (generic()) for (MaterialRow material : output ? patternOutputs : patternInputs) result.add(materialTotal(material.stack, material.amount, material.folder, material.role, runs));
         else if (output) { ItemStack stack = derivedResult(); if (!stack.isEmpty()) result.add(new TotalRow(stack, (long) stack.getCount() * runs, outputFolder, false)); }
         else { ItemStack input = selectedStack(false), fuel = selectedStack(true); if (!input.isEmpty()) result.add(new TotalRow(input, runs, inputFolder, false)); if (!fuel.isEmpty()) result.add(new TotalRow(fuel, brewing() ? runs : 0, fuelFolder, !brewing())); }
         return result;
     }
-    public List<String> runSummary(boolean output) { return totals(output).stream().map(row -> row.stack().getHoverName().getString() + " × " + (row.estimated() ? label("as_needed").getString() : row.amount())).toList(); }
+    private static TotalRow materialTotal(ItemStack stack, int amount, int folder, ProcessingPattern.Role role, int runs) {
+        boolean stock = role == ProcessingPattern.Role.RETAINED || role == ProcessingPattern.Role.SUPPLY;
+        return new TotalRow(stack, stock ? amount : (long) amount * runs, folder, false, role);
+    }
+    private String totalAmount(TotalRow row) {
+        if (row.estimated()) return label("as_needed").getString();
+        return switch (row.role()) {
+            case RETAINED -> label("retained_total", row.amount()).getString();
+            case SUPPLY -> label("supply_total", row.amount()).getString();
+            case OPTIONAL -> label("optional_total", row.amount()).getString();
+            default -> "× " + row.amount();
+        };
+    }
+    public List<String> runSummary(boolean output) { return totals(output).stream().map(row -> row.stack().getHoverName().getString() + " " + totalAmount(row)).toList(); }
     private void scrollTotals(boolean output, int delta) { if (output) outputScroll = Math.max(0, Math.min(Math.max(0, totals(true).size() - 4), outputScroll + delta)); else inputScroll = Math.max(0, Math.min(Math.max(0, totals(false).size() - 4), inputScroll + delta)); }
     @Override public boolean mouseScrolled(double x, double y, double delta) {
         if (pickerOpen) { pickerOffset = Math.max(0, Math.min(Math.max(0, pickerResults.size() - 6), pickerOffset + (delta < 0 ? 1 : -1))); refreshPicker(); return true; }
@@ -576,12 +684,13 @@ public final class ProductionPortScreen extends AbstractContainerScreen<Producti
             if (!generic()) { line(g, label(brewing() ? "base_potion" : "vanilla_input"), 70, 91, 70); line(g, label(brewing() ? "brewing_reagent" : "vanilla_fuel"), 70, 127, 90); if (derivedResult().isEmpty()) line(g, label("derive_after_save"), 199, 129, 109); }
             line(g, selectedMaterialLabel(), 10, 150, 300);
             boolean fuel = !generic() && !outputTabSelected && rowIndex == 1 && !brewing();
-            line(g, label(fuel ? "fuel_usage" : "amount"), 10, 166, 49);
+            MaterialRow material = currentMaterial();
+            boolean stock = generic() && material != null && (material.role == ProcessingPattern.Role.RETAINED || material.role == ProcessingPattern.Role.SUPPLY);
+            line(g, label(fuel ? "fuel_usage" : stock ? "stock_amount" : "amount"), 10, 166, 49);
             if (fuel) line(g, label("as_needed"), 61, 166, 40);
         } else if (page == 1) {
             line(g, label(generic() ? "absolute_direction" : "native_folders"), 10, 75, 300);
-            if (generic()) line(g, label("connection_short_note"), 10, 164, 300);
-            else g.drawWordWrap(font, label("vanilla_connection_note"), leftPos + 10, topPos + 140, 300, VanillaGui.panelText(0xff505050));
+            if (!generic()) g.drawWordWrap(font, label("vanilla_connection_note"), leftPos + 10, topPos + 140, 300, VanillaGui.panelText(0xff505050));
         } else {
             boolean running = menu.view().getBoolean("Running");
             line(g, label("batches"), 10, 77, 49);
@@ -597,7 +706,7 @@ public final class ProductionPortScreen extends AbstractContainerScreen<Producti
     }
     private void renderTotals(GuiGraphics g, boolean output) {
         List<TotalRow> rows = totals(output); int scroll = output ? outputScroll : inputScroll, x = output ? 164 : 10;
-        for (int i = 0; i < 4 && scroll + i < rows.size(); i++) { TotalRow row = rows.get(scroll + i); int y = 108 + i * 20; g.renderItem(row.stack(), leftPos + x, topPos + y); String amount = row.estimated() ? label("as_needed").getString() : "×" + row.amount(); line(g, Component.literal(font.plainSubstrByWidth(row.stack().getHoverName().getString(), Math.max(24, 105 - font.width(amount))) + " " + amount), x + 20, y + 4, 106); }
+        for (int i = 0; i < 4 && scroll + i < rows.size(); i++) { TotalRow row = rows.get(scroll + i); int y = 108 + i * 20; g.renderItem(row.stack(), leftPos + x, topPos + y); String amount = totalAmount(row); line(g, Component.literal(font.plainSubstrByWidth(row.stack().getHoverName().getString(), Math.max(24, 105 - font.width(amount))) + " " + amount), x + 20, y + 4, 106); }
     }
     private ItemStack gridStack(boolean output, int index) { if (!generic()) return output ? derivedResult() : selectedStack(index == 1); List<MaterialRow> rows = output ? patternOutputs : patternInputs; return index >= rows.size() ? ItemStack.EMPTY : rows.get(index).stack.copyWithCount(Math.max(1, rows.get(index).amount)); }
     @Override public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
