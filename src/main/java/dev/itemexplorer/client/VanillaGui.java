@@ -46,6 +46,16 @@ final class VanillaGui {
         RenderSystem.disableBlend();
     }
 
+    /** Small is 8x8 for tree rows; large is 16x13 for tiles and slots. */
+    static void folderIcon(GuiGraphics graphics, int left, int top, boolean small) {
+        int w = small ? 8 : 16, h = small ? 6 : 11;
+        graphics.fill(left, top, left + w / 2, top + 3, 0xff725421);
+        graphics.fill(left, top + 2, left + w, top + h + 2, 0xff725421);
+        graphics.fill(left + 1, top + 1, left + w / 2 - 1, top + 3, 0xffffdf88);
+        graphics.fill(left + 1, top + 3, left + w - 1, top + h + 1, 0xffd7ae54);
+        graphics.fill(left + 1, top + 3, left + w - 1, top + 4, 0xffffdf88);
+    }
+
     static void playerInventory(GuiGraphics graphics, int left, int top) {
         RenderSystem.enableBlend();
         RenderSystem.defaultBlendFunc();

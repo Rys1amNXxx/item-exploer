@@ -791,13 +791,7 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
     }
 
     private void folderIcon(GuiGraphics g, int x, int y, boolean small) {
-        int left = leftPos + x, top = topPos + y;
-        int w = small ? 8 : 16, h = small ? 6 : 11;
-        g.fill(left, top, left + w / 2, top + 3, 0xff725421);
-        g.fill(left, top + 2, left + w, top + h + 2, 0xff725421);
-        g.fill(left + 1, top + 1, left + w / 2 - 1, top + 3, 0xffffdf88);
-        g.fill(left + 1, top + 3, left + w - 1, top + h + 1, 0xffd7ae54);
-        g.fill(left + 1, top + 3, left + w - 1, top + 4, 0xffffdf88);
+        VanillaGui.folderIcon(g, leftPos + x, topPos + y, small);
     }
 
     private void programIcon(GuiGraphics g, int x, int y, boolean active) {
