@@ -65,14 +65,22 @@ function boxesFor(part, state) { return selected(part, state).flatMap(apply => m
 let models = 0;
 for (const directory of ['block', 'item']) for (const name of readdirSync(assets + 'models/' + directory).filter(name => name.startsWith('base_station_'))) {
   const value = model('itemexplorer:' + directory + '/' + name.slice(0, -5));
+  const networkLed = directory === 'block' && name === 'base_station_network_led.json';
+  const controller = name === 'base_station_controller.json' || name === 'base_station_controller_formed.json';
   for (const ref of Object.values(value.textures)) {
     const resolved = resolveTexture(ref, value.textures);
-    assert(resolved.startsWith('itemexplorer:block/base_station/'), `Unexpected texture dependency ${name}: ${resolved}`);
+    if (networkLed && resolved === 'minecraft:block/white_concrete') continue;
+    assert(resolved.startsWith('itemexplorer:block/base_station/') || controller && resolved === 'itemexplorer:block/hardware_dark', `Unexpected texture dependency ${name}: ${resolved}`);
     assert(existsSync(assets + 'textures/' + resolved.replace('itemexplorer:', '') + '.png'), `${name}: missing texture ${resolved}`);
   }
   for (const box of value.elements) {
     assert(box.from.length === 3 && box.to.length === 3);
-    for (let axis = 0; axis < 3; axis++) assert(box.from[axis] >= 0 && box.to[axis] <= 16 && box.from[axis] <= box.to[axis], `${name}: geometry outside its block`);
+    // The wireless lamp sits just in front of the controller, avoiding depth fighting.
+    const networkRecess = controller && box.faces.north?.texture === '#network_recess';
+    for (let axis = 0; axis < 3; axis++) {
+      const minimum = axis === 2 ? networkLed ? -0.125 : networkRecess ? -0.0625 : 0 : 0;
+      assert(box.from[axis] >= minimum && box.to[axis] <= 16 && box.from[axis] <= box.to[axis], `${name}: geometry outside its allowed bounds`);
+    }
     for (const [direction, face] of Object.entries(box.faces)) {
       assert(planes[direction], `${name}: bad face direction`);
       assert(face.uv.length === 4 && face.uv.every(value => value >= 0 && value <= 16), `${name}: UV outside texture`);
@@ -84,6 +92,12 @@ for (const directory of ['block', 'item']) for (const name of readdirSync(assets
     }
   }
   geometry(name, value.elements); models++;
+}
+
+for (const [turn, facing] of facings.entries()) {
+  const controller = boxesFor('controller', { facing, formed: 'true' });
+  const indicator = model('itemexplorer:block/base_station_network_led').elements.map(box => rotateBox(box, turn * 90));
+  geometry('networked controller ' + facing, [...controller, ...indicator]);
 }
 
 let variants = 0;

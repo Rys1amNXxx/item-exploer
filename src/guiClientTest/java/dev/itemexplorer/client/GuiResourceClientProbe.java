@@ -249,7 +249,11 @@ public final class GuiResourceClientProbe {
         String scene = SCENES.get(sceneIndex);
         boolean minimum = scene.equals("storage-minimum");
         GLFW.glfwSetWindowSize(client.getWindow().getWindow(), minimum ? 640 : 960, minimum ? 480 : 720);
-        client.resizeDisplay(); samples = new ArrayList<>(); surfaces = new ArrayList<>();
+        client.resizeDisplay();
+        // Window resize callbacks can arrive on a later frame; keep the fixed-size assertions below.
+        if (client.getWindow().getGuiScaledWidth() != (minimum ? 320 : 480)
+                || client.getWindow().getGuiScaledHeight() != (minimum ? 240 : 360)) return;
+        samples = new ArrayList<>(); surfaces = new ArrayList<>();
         if (scene.equals("theme-surfaces")) {
             Screen screen = new SurfaceScreen(); client.setScreen(screen);
             client.player.containerMenu = client.player.inventoryMenu;
@@ -342,7 +346,8 @@ public final class GuiResourceClientProbe {
             samples.add(new Sample("browser", left + layout.browserX() + layout.browserWidth() - 8,
                     top + layout.browserY() + layout.browserHeight() - 8, recess));
         }
-        if (scene.equals("production")) samples.add(new Sample("recipe-slot", left + 19, top + 89,
+        // Sample the empty derived-output slot in the recipe overview; input slots also draw a '+' glyph.
+        if (scene.equals("production")) samples.add(new Sample("recipe-slot", left + 264, top + 112,
                 theme().synthetic() ? slotColor(13) & 0xffffff : null));
         ready(screen, "panel=" + panelWidth + "x" + panelHeight);
     }
