@@ -13,7 +13,8 @@ import net.minecraft.network.chat.Component;
 
 /** Fixed-terminal access management shares the already validated storage container. */
 public final class PortableAccessScreen extends Screen {
-    private static final int PANEL_HEIGHT = 228, TEXT = 0xff303b42, MUTED = 0xff52626a;
+    private static final int PANEL_HEIGHT = 228;
+    private static final VanillaGui.Tone TEXT = VanillaGui.Tone.TEXT, MUTED = VanillaGui.Tone.MUTED;
     private final RemoteTransferScreen parent;
     private final StorageMenu menu;
     private Button enabled, revoke;
@@ -102,11 +103,8 @@ public final class PortableAccessScreen extends Screen {
         updateWidgets();
     }
 
-    private void line(GuiGraphics graphics, Component text, int y, int color) {
-        String value = text.getString();
-        if (font.width(value) > panelWidth - 20)
-            value = font.plainSubstrByWidth(value, panelWidth - 20 - font.width("…")) + "…";
-        VanillaGui.panelString(graphics, font, value, left + 10, top + y, color);
+    private void line(GuiGraphics graphics, Component text, int y, VanillaGui.Tone tone) {
+        VanillaGui.panelString(graphics, font, VanillaGui.fit(font, text.getString(), panelWidth - 20), left + 10, top + y, tone);
     }
 
     @Override public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
@@ -130,7 +128,7 @@ public final class PortableAccessScreen extends Screen {
             y += 11;
             if (y > 174) break;
         }
-        if (Util.getMillis() < feedbackUntil) line(graphics, feedback, 185, feedbackSuccess ? 0xff286539 : 0xff953c30);
+        if (Util.getMillis() < feedbackUntil) line(graphics, feedback, 185, feedbackSuccess ? VanillaGui.Tone.SUCCESS : VanillaGui.Tone.ERROR);
         super.render(graphics, mouseX, mouseY, partialTick);
         if (mouseX >= left + 10 && mouseX < left + panelWidth - 10 && mouseY >= top + 130 && mouseY < top + 180)
             graphics.renderTooltip(font, label("setup_hint"), mouseX, mouseY);

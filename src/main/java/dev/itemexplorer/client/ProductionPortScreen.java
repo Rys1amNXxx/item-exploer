@@ -78,8 +78,10 @@ public final class ProductionPortScreen extends AbstractContainerScreen<Producti
     private int inputFolder, fuelFolder, outputFolder, inputEntry, fuelEntry, page, rowIndex, inputScroll, outputScroll, pickerOffset;
     private Direction inputFace = Direction.UP, outputFace = Direction.DOWN;
     private boolean outputTabSelected, updatingAmount, selectionPending, pickerOpen;
-    private long context = -1, machinePos, noticeUntil, pickerSession, pickerContext, pickerMachine;
-    private String savedSignature = "", notice = "";
+    private long context = -1, machinePos, pickerSession, pickerContext, pickerMachine;
+    private String savedSignature = "";
+    private final GuiNotice notice = new GuiNotice();
+    private record Status(Component text, VanillaGui.Tone tone) {}
     private CompoundTag seen;
     private PendingSave pendingSave;
     private Component pickerTitle = Component.empty();
@@ -504,8 +506,8 @@ public final class ProductionPortScreen extends AbstractContainerScreen<Producti
             if (index < pickerResults.size()) {
                 PickerOption option = pickerResults.get(index);
                 int width = option.stack().isEmpty() ? 266 : 240;
-                String caption = option.detail().isEmpty() ? font.plainSubstrByWidth(option.label(), width)
-                        : font.plainSubstrByWidth(option.label(), width / 2) + " · " + font.plainSubstrByWidth(option.detail(), width / 2 - 12);
+                String caption = option.detail().isEmpty() ? VanillaGui.fit(font, option.label(), width)
+                        : VanillaGui.fit(font, option.label(), width / 2) + " · " + VanillaGui.fit(font, option.detail(), width / 2 - 12);
                 button.setMessage(Component.literal((option.stack().isEmpty() ? "" : "    ") + caption));
                 button.setTooltip(Tooltip.create(Component.literal(option.label() + (option.detail().isEmpty() ? "" : "\n" + option.detail()))));
             }
@@ -517,7 +519,12 @@ public final class ProductionPortScreen extends AbstractContainerScreen<Producti
         CompoundTag view = menu.view();
         return machinePos == view.getLong("SavedMachinePos") && inputEntry == view.getInt("InputEntry") && fuelEntry == view.getInt("FuelEntry") && inputFolder == view.getInt("InputFolder") && fuelFolder == view.getInt("FuelFolder") ? ItemStack.of(view.getCompound("Result")) : ItemStack.EMPTY;
     }
-    private void showNotice(String key) { notice = key == null || key.isEmpty() ? "production_save_queue_changed" : key; noticeUntil = Util.getMillis() + 4500; }
+    private void showNotice(String key) {
+        String message = key == null || key.isEmpty() ? "production_save_queue_changed" : key;
+        VanillaGui.Tone tone = Set.of("production_saved", "production_machine_selected").contains(message) ? VanillaGui.Tone.SUCCESS
+                : message.equals("production_document_updated") ? VanillaGui.Tone.WARNING : VanillaGui.Tone.ERROR;
+        notice.message(message, tone, 4500);
+    }
     private void refresh() {
         CompoundTag view = menu.view();
         if (seen != view) {
@@ -547,7 +554,7 @@ public final class ProductionPortScreen extends AbstractContainerScreen<Producti
         if (pickerOpen && (!editable() || view.getLong("Session") != pickerSession || view.getLong("Context") != pickerContext || machinePos != pickerMachine)) closePicker();
         refreshWidgets();
     }
-    private void textButton(Button button, Component text, int width) { button.setMessage(Component.literal(font.plainSubstrByWidth(text.getString(), width))); button.setTooltip(Tooltip.create(text)); }
+    private void textButton(Button button, Component text, int width) { button.setMessage(Component.literal(VanillaGui.fit(font, text.getString(), width))); button.setTooltip(Tooltip.create(text)); }
     private void refreshWidgets() {
         if (save == null || search == null) return;
         boolean edit = editable(), running = menu.view().getBoolean("Running"), generic = generic();
@@ -658,24 +665,25 @@ public final class ProductionPortScreen extends AbstractContainerScreen<Producti
     }
     @Override public void onClose() { if (pickerOpen) { closePicker(); return; } pendingSave = null; if (menu.view().contains("Session")) send(StorageNetwork.ProductionAction.BACK, 1); else super.onClose(); }
     @Override public void removed() { pendingSave = null; super.removed(); }
-    private Component status() {
-        if (pendingSave != null) return label(pendingSave.runs() > 0 ? "saving_before_run" : "saving");
-        if (selectionPending) return label("switching_machine");
-        if (menu.view().getBoolean("Running")) return label("progress", menu.view().getInt("Completed"), Math.max(1, menu.view().getInt("Count"))).copy().append(" · ").append(Component.translatable("message.itemexplorer." + menu.view().getString("Status")));
-        if (Util.getMillis() < noticeUntil) return Component.translatable("message.itemexplorer." + notice);
+    private Status status() {
+        if (pendingSave != null) return new Status(label(pendingSave.runs() > 0 ? "saving_before_run" : "saving"), VanillaGui.Tone.MUTED);
+        if (selectionPending) return new Status(label("switching_machine"), VanillaGui.Tone.MUTED);
+        if (menu.view().getBoolean("Running")) return new Status(label("progress", menu.view().getInt("Completed"), Math.max(1, menu.view().getInt("Count"))).copy().append(" · ").append(Component.translatable("message.itemexplorer." + menu.view().getString("Status"))), VanillaGui.Tone.TEXT);
+        if (notice.active()) return new Status(notice.text(), notice.tone());
         String state = menu.view().getString("Status");
         if (!state.isEmpty() && !Set.of("production_ready", "production_unconfigured", "production_complete", "production_cancelled").contains(state))
-            return Component.translatable("message.itemexplorer." + state);
+            return new Status(Component.translatable("message.itemexplorer." + state), VanillaGui.Tone.WARNING);
         if (selectedMachine() == null || !selectedMachine().connected() || !menu.view().getBoolean("MachineOnline"))
-            return Component.translatable("message.itemexplorer.production_machine_offline");
+            return new Status(Component.translatable("message.itemexplorer.production_machine_offline"), VanillaGui.Tone.ERROR);
         Component problem = configurationProblem();
-        if (problem != null) return problem;
-        if (page == 2 && (runCount() < 1 || runCount() > 4096)) return label("fix_batch_count");
-        if (!dirty() && state.equals("production_complete")) return Component.translatable("message.itemexplorer.production_complete");
-        return label(dirty() ? "unsaved_changes" : "saved_changes");
+        if (problem != null) return new Status(problem, VanillaGui.Tone.WARNING);
+        if (page == 2 && (runCount() < 1 || runCount() > 4096)) return new Status(label("fix_batch_count"), VanillaGui.Tone.WARNING);
+        if (!dirty() && state.equals("production_complete")) return new Status(Component.translatable("message.itemexplorer.production_complete"), VanillaGui.Tone.SUCCESS);
+        return new Status(label(dirty() ? "unsaved_changes" : "saved_changes"), dirty() ? VanillaGui.Tone.WARNING : VanillaGui.Tone.MUTED);
     }
     @Override protected void renderLabels(GuiGraphics g, int x, int y) {}
-    private void line(GuiGraphics g, Component text, int x, int y, int width) { VanillaGui.panelString(g, font, font.plainSubstrByWidth(text.getString(), width), leftPos + x, topPos + y, 0xff303030); }
+    private void line(GuiGraphics g, Component text, int x, int y, int width) { line(g, text, x, y, width, VanillaGui.Tone.TEXT); }
+    private void line(GuiGraphics g, Component text, int x, int y, int width, VanillaGui.Tone tone) { VanillaGui.panelString(g, font, VanillaGui.fit(font, text.getString(), width), leftPos + x, topPos + y, tone); }
     @Override protected void renderBg(GuiGraphics g, float partialTick, int mouseX, int mouseY) {
         VanillaGui.panel(g, leftPos, topPos, imageWidth, imageHeight); line(g, label("name"), 10, 11, 31);
         if (page == 0) {
@@ -690,7 +698,7 @@ public final class ProductionPortScreen extends AbstractContainerScreen<Producti
             if (fuel) line(g, label("as_needed"), 61, 166, 40);
         } else if (page == 1) {
             line(g, label(generic() ? "absolute_direction" : "native_folders"), 10, 75, 300);
-            if (!generic()) g.drawWordWrap(font, label("vanilla_connection_note"), leftPos + 10, topPos + 140, 300, VanillaGui.panelText(0xff505050));
+            if (!generic()) g.drawWordWrap(font, label("vanilla_connection_note"), leftPos + 10, topPos + 140, 300, VanillaGui.panelText(VanillaGui.Tone.MUTED));
         } else {
             boolean running = menu.view().getBoolean("Running");
             line(g, label("batches"), 10, 77, 49);
@@ -701,12 +709,12 @@ public final class ProductionPortScreen extends AbstractContainerScreen<Producti
             boolean brewing = running ? "brewing".equals(menu.view().getString("Kind")) : brewing();
             line(g, label(pattern ? "batch_note" : brewing ? "brewing_supplies_note" : "fuel_estimate_note"), 10, 193, 300);
         }
-        line(g, status(), 10, 203, 300);
+        Status status = status(); line(g, status.text(), 10, 203, 300, status.tone());
         if (pickerOpen) { g.fill(leftPos, topPos, leftPos + 320, topPos + 238, 0xa0000000); VanillaGui.panel(g, leftPos + 10, topPos + 13, 300, 216); line(g, pickerTitle, 21, 24, 278); if (pickerResults.isEmpty()) line(g, label("no_matches"), 24, 80, 270); }
     }
     private void renderTotals(GuiGraphics g, boolean output) {
         List<TotalRow> rows = totals(output); int scroll = output ? outputScroll : inputScroll, x = output ? 164 : 10;
-        for (int i = 0; i < 4 && scroll + i < rows.size(); i++) { TotalRow row = rows.get(scroll + i); int y = 108 + i * 20; g.renderItem(row.stack(), leftPos + x, topPos + y); String amount = totalAmount(row); line(g, Component.literal(font.plainSubstrByWidth(row.stack().getHoverName().getString(), Math.max(24, 105 - font.width(amount))) + " " + amount), x + 20, y + 4, 106); }
+        for (int i = 0; i < 4 && scroll + i < rows.size(); i++) { TotalRow row = rows.get(scroll + i); int y = 108 + i * 20; g.renderItem(row.stack(), leftPos + x, topPos + y); String amount = totalAmount(row); line(g, Component.literal(VanillaGui.fit(font, row.stack().getHoverName().getString(), Math.max(24, 105 - font.width(amount))) + " " + amount), x + 20, y + 4, 106); }
     }
     private ItemStack gridStack(boolean output, int index) { if (!generic()) return output ? derivedResult() : selectedStack(index == 1); List<MaterialRow> rows = output ? patternOutputs : patternInputs; return index >= rows.size() ? ItemStack.EMPTY : rows.get(index).stack.copyWithCount(Math.max(1, rows.get(index).amount)); }
     @Override public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
@@ -723,6 +731,6 @@ public final class ProductionPortScreen extends AbstractContainerScreen<Producti
         }
         if (page == 2) for (boolean output : new boolean[]{false, true}) { int x = output ? 164 : 10, scroll = output ? outputScroll : inputScroll; List<TotalRow> rows = totals(output); for (int i = 0; i < 4 && scroll + i < rows.size(); i++) if (mouseX >= leftPos + x && mouseX < leftPos + x + 126 && mouseY >= topPos + 108 + i * 20 && mouseY < topPos + 128 + i * 20) g.renderTooltip(font, Component.literal(runSummary(output).get(scroll + i) + "\n" + folderName(rows.get(scroll + i).folder())), mouseX, mouseY); }
         if (page == 0 && mouseX >= leftPos + 10 && mouseX < leftPos + 310 && mouseY >= topPos + 149 && mouseY < topPos + 160) g.renderTooltip(font, selectedMaterialLabel(), mouseX, mouseY);
-        if (mouseX >= leftPos + 10 && mouseX < leftPos + 310 && mouseY >= topPos + 202 && mouseY < topPos + 213) g.renderTooltip(font, status(), mouseX, mouseY);
+        if (mouseX >= leftPos + 10 && mouseX < leftPos + 310 && mouseY >= topPos + 202 && mouseY < topPos + 213) g.renderTooltip(font, status().text(), mouseX, mouseY);
     }
 }

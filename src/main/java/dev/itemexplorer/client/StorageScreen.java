@@ -74,8 +74,8 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
     private List<Tile> tiles = List.of();
     private List<Crumb> crumbs = List.of();
     private int requestedPageSize = -1;
-    private long resizeRequestedAt, errorUntil;
-    private String error = "";
+    private long resizeRequestedAt;
+    private final GuiNotice notice = new GuiNotice();
     private boolean openingRemoteScreen;
 
     public StorageScreen(StorageMenu menu, Inventory inventory, Component title) {
@@ -187,10 +187,10 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
         if (searching && (action == Action.MOVE || action == Action.WITHDRAW
                 || action == Action.DEPOSIT_CURSOR || action == Action.DEPOSIT_SLOT || action == Action.DEPOSIT_SLOTS
                 || action == Action.SORT)) return;
-        if (action == Action.MOVE && target < 0) { error = "cross_disk"; errorUntil = Util.getMillis() + 4500; return; }
+        if (action == Action.MOVE && target < 0) { notice.message("cross_disk", VanillaGui.Tone.ERROR, 4500); return; }
         StorageNetwork.request(new StorageNetwork.Request(menu.containerId, menu.view().getLong("Revision"), action, id, target, amount, text, menu.view().getLong("Session")));
         if (action == Action.SELECT_VOLUME) { awaitingVolume = true; volumeRequestedAt = Util.getMillis(); }
-        errorUntil = 0;
+        notice.clear();
     }
 
     @Override public void removed() {
@@ -201,10 +201,10 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
     private void sendFile(StorageNetwork.FileAction action, int id, int target, String name) {
         CompoundTag view = menu.view();
         if (portable() || !view.getBoolean("ProgramsAvailable") || awaitingVolume || searching) return;
-        if (target < 0) { error = "cross_disk"; errorUntil = Util.getMillis() + 4500; return; }
+        if (target < 0) { notice.message("cross_disk", VanillaGui.Tone.ERROR, 4500); return; }
         StorageNetwork.request(new StorageNetwork.FileRequest(menu.containerId, view.getLong("Session"),
                 view.getLong("Revision"), view.getLong("ProgramRevision"), action, id, target, name));
-        errorUntil = 0;
+        notice.clear();
     }
 
     private void openSearch() {
@@ -270,7 +270,7 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
                 Math.max(0, catalogRevision), menu.view().getLong("ResultViewSeq"), action,
                 searchRecursive, page, pageSize, entryId, amount, menu.view().getLong("Revision"), matches));
         searchRequestedAt = Util.getMillis();
-        errorUntil = 0;
+        notice.clear();
     }
 
     private void applySearch(boolean immediate) {
@@ -483,8 +483,8 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
         String message = cachedView.getString("Message");
         // Connection failures have their own persistent, fully translated status below.
         // Do not replay an old disconnection as a transient error after reconnecting.
-        if (portable() && !cachedView.getBoolean("PortableConnected")) errorUntil = 0;
-        else if (!QUIET_MESSAGES.contains(message)) { error = message; errorUntil = Util.getMillis() + 4500; }
+        if (portable() && !cachedView.getBoolean("PortableConnected")) notice.clear();
+        else if (!QUIET_MESSAGES.contains(message)) notice.message(message, VanillaGui.Tone.ERROR, 4500);
     }
 
     private void rebuildTree() {
@@ -537,8 +537,7 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
     }
 
     private String fit(String value, int width) {
-        if (font.width(value) <= width) return value;
-        return font.plainSubstrByWidth(value, Math.max(0, width - font.width("..."))) + "...";
+        return VanillaGui.fit(font, value, width);
     }
 
     private boolean inside(double x, double y, int left, int top, int width, int height) {
@@ -619,7 +618,7 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
         }
         if (searching && Util.getMillis() - searchRequestedAt > 3000) {
             if (awaitingSearchExit) {
-                awaitingSearchExit = false; error = "stale"; errorUntil = Util.getMillis() + 4500;
+                awaitingSearchExit = false; notice.message("stale", VanillaGui.Tone.ERROR, 4500);
             } else if (applyingSearch) { applyingSearch = false; appliedQuerySeq = -1; }
         }
         applySearch(false);
@@ -630,7 +629,7 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
         refreshView();
         // A rate-limited selection may receive no reply. Keep the displayed old context and allow retry.
         if (awaitingVolume && Util.getMillis() - volumeRequestedAt > 3000) {
-            awaitingVolume = false; error = "stale"; errorUntil = Util.getMillis() + 4500;
+            awaitingVolume = false; notice.message("stale", VanillaGui.Tone.ERROR, 4500);
         }
         int desiredPageSize = searching ? layout.searchRows() : pageCapacity();
         if (menu.view().contains("Revision") && (searching ? searchReady() : !menu.view().getBoolean("Searching"))
@@ -771,6 +770,10 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
         VanillaGui.panelString(g, font, fit(value.getString(), maxWidth), leftPos + x, topPos + y, color);
     }
 
+    private void text(GuiGraphics g, Component value, int x, int y, int maxWidth, VanillaGui.Tone tone) {
+        VanillaGui.panelString(g, font, fit(value.getString(), maxWidth), leftPos + x, topPos + y, tone);
+    }
+
     private void recessText(GuiGraphics graphics, Component value, int offsetX, int offsetY, int maxWidth, int color) {
         recessText(graphics, value, offsetX, offsetY, maxWidth, color, 0);
     }
@@ -822,7 +825,7 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
             Component portableTitle = label("portable_title").copy().append(target.isEmpty() ? "" : " · " + target);
             text(g, portableTitle, 28, 9, imageWidth - 226, TEXT);
             text(g, label(connected ? "portable_connected_short" : "portable_offline_short"),
-                    imageWidth - 194, 9, 74, connected ? 0xff286539 : 0xff953c30);
+                    imageWidth - 194, 9, 74, connected ? VanillaGui.Tone.SUCCESS : VanillaGui.Tone.ERROR);
         } else text(g, label("title"), 28, 9, imageWidth - 226, TEXT);
         String capacity = menu.view().getBoolean("Locked") ? label("locked").getString()
                 : !menu.view().getBoolean("Available") ? label("offline").getString()
@@ -934,15 +937,14 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
     private void renderError(GuiGraphics g) {
         boolean locked = menu.view().getBoolean("Locked");
         boolean offline = menu.view().contains("Session") && !menu.view().getBoolean("Available");
-        if (!locked && !offline && Util.getMillis() >= errorUntil) return;
+        if (!locked && !offline && !notice.active()) return;
         Component message = portable() && !menu.view().getBoolean("PortableConnected") ? portableStatus()
-                : Component.translatable("message.itemexplorer." + (locked ? "storage_locked" : offline ? "disk_offline" : error));
-        var lines = font.split(message, imageWidth - 40);
-        int h = lines.size() * font.lineHeight + 12;
-        int x = 12, y = layout.controlsY() - h - 3;
+                : locked || offline ? Component.translatable("message.itemexplorer." + (locked ? "storage_locked" : "disk_offline"))
+                : notice.text();
+        VanillaGui.Tone tone = locked || offline ? VanillaGui.Tone.ERROR : notice.tone();
+        int width = imageWidth - 24, h = VanillaGui.bannerHeight(font, message, width);
         g.pose().pushPose(); g.pose().translate(0, 0, 250);
-        panel(g, x, y, imageWidth - 24, h);
-        for (int i = 0; i < lines.size(); i++) VanillaGui.panelString(g, font, lines.get(i), leftPos + x + 8, topPos + y + 6 + i * font.lineHeight, 0xffa02020);
+        VanillaGui.banner(g, font, message, tone, leftPos + 12, topPos + layout.controlsY() - h - 3, width);
         g.pose().popPose();
     }
 

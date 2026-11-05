@@ -2,7 +2,6 @@ package dev.itemexplorer.client;
 
 import dev.itemexplorer.menu.LogisticsPortMenu;
 import dev.itemexplorer.network.StorageNetwork;
-import net.minecraft.Util;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.Tooltip;
@@ -23,8 +22,10 @@ public final class LogisticsPortScreen extends AbstractContainerScreen<Logistics
     private Button drive, inputButton, outputButton, recursiveButton, apply, disconnect, up, down;
     private boolean input = true, output = true, recursive;
     private int folder, scroll;
-    private String selected = "", notice = "";
-    private long revision = -1, context = -1, noticeUntil;
+    private static final java.util.Set<String> SUCCESS_MESSAGES = java.util.Set.of("port_saved", "port_disconnected");
+    private String selected = "";
+    private final GuiNotice notice = new GuiNotice();
+    private long revision = -1, context = -1;
     private CompoundTag seen;
 
     public LogisticsPortScreen(LogisticsPortMenu menu, Inventory inventory, Component title) { super(menu, inventory, title); imageWidth = 320; imageHeight = 238; }
@@ -84,7 +85,9 @@ public final class LogisticsPortScreen extends AbstractContainerScreen<Logistics
             folders.clear(); ListTag nodes = view.getList("Folders", Tag.TAG_COMPOUND);
             if (!nodes.isEmpty()) { folders.add(new FolderRow(0, label("port_root").getString())); appendFolders(nodes, 0, "", 1); }
             scroll = Math.min(scroll, Math.max(0, folders.size() - 4));
-            if (!view.getString("Message").isEmpty()) { notice = view.getString("Message"); noticeUntil = Util.getMillis() + 4000; }
+            String message = view.getString("Message");
+            if (!message.isEmpty()) notice.message(message,
+                    SUCCESS_MESSAGES.contains(message) ? VanillaGui.Tone.SUCCESS : VanillaGui.Tone.ERROR, 4000);
         }
         String name = label("offline_disk").getString();
         var volumes = view.getList("Volumes", Tag.TAG_COMPOUND);
@@ -93,14 +96,14 @@ public final class LogisticsPortScreen extends AbstractContainerScreen<Logistics
             name = disk.getBoolean("Local") ? label("port_local").getString() : disk.getInt("Bay") + ". "
                     + (disk.getString("Name").isEmpty() ? Component.translatable("item.itemexplorer.disk_" + disk.getString("Tier")).getString() : disk.getString("Name"));
         }
-        drive.setMessage(Component.literal(font.plainSubstrByWidth(name + "  ▸", 280))); drive.setTooltip(Tooltip.create(Component.literal(name)));
+        drive.setMessage(Component.literal(VanillaGui.fit(font, name, 268) + "  ▸")); drive.setTooltip(Tooltip.create(Component.literal(name)));
         boolean ready = view.contains("Session") && !view.getBoolean("Locked");
         drive.active = ready && !volumes.isEmpty();
         for (int i = 0; i < rows.length; i++) {
             boolean exists = scroll + i < folders.size(); rows[i].visible = exists; rows[i].active = ready && exists;
             if (exists) {
                 FolderRow row = folders.get(scroll + i);
-                rows[i].setMessage(Component.literal((row.id() == folder ? "▶ " : "   ") + font.plainSubstrByWidth(row.path(), 250)));
+                rows[i].setMessage(Component.literal((row.id() == folder ? "▶ " : "   ") + VanillaGui.fit(font, row.path(), 250)));
                 rows[i].setTooltip(Tooltip.create(Component.literal(row.path())));
             }
         }
@@ -126,11 +129,12 @@ public final class LogisticsPortScreen extends AbstractContainerScreen<Logistics
     @Override protected void renderLabels(GuiGraphics g, int x, int y) {}
     @Override protected void renderBg(GuiGraphics g, float partialTick, int mouseX, int mouseY) {
         VanillaGui.panel(g, leftPos, topPos, imageWidth, imageHeight);
-        VanillaGui.panelString(g, font, title, leftPos + 10, topPos + 10, 0xff303030);
+        VanillaGui.panelString(g, font, title, leftPos + 10, topPos + 10, VanillaGui.Tone.TEXT);
         String status = Component.translatable("message.itemexplorer." + menu.view().getString("Status")).getString();
-        VanillaGui.panelString(g, font, font.plainSubstrByWidth(status, 296), leftPos + 10, topPos + 29, 0xff505050);
-        VanillaGui.panelString(g, font, label("port_folder"), leftPos + 10, topPos + 69, 0xff303030);
-        String line = Util.getMillis() < noticeUntil ? Component.translatable("message.itemexplorer." + notice).getString() : label("port_apply_hint").getString();
-        VanillaGui.panelString(g, font, font.plainSubstrByWidth(line, 296), leftPos + 10, topPos + 201, 0xff505050);
+        VanillaGui.panelString(g, font, VanillaGui.fit(font, status, 296), leftPos + 10, topPos + 29, VanillaGui.Tone.MUTED);
+        VanillaGui.panelString(g, font, label("port_folder"), leftPos + 10, topPos + 69, VanillaGui.Tone.TEXT);
+        String line = (notice.active() ? notice.text() : label("port_apply_hint")).getString();
+        VanillaGui.panelString(g, font, VanillaGui.fit(font, line, 296), leftPos + 10, topPos + 201,
+                notice.active() ? notice.tone() : VanillaGui.Tone.MUTED);
     }
 }

@@ -2,7 +2,6 @@ package dev.itemexplorer.client;
 
 import dev.itemexplorer.menu.NasMenu;
 import dev.itemexplorer.network.StorageNetwork;
-import net.minecraft.Util;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.Tooltip;
@@ -17,8 +16,7 @@ import net.minecraft.world.item.ItemStack;
 public final class NasScreen extends AbstractContainerScreen<NasMenu> {
     private final Button[] install = new Button[4], eject = new Button[4];
     private CompoundTag seen;
-    private String error = "";
-    private long errorUntil;
+    private final GuiNotice notice = new GuiNotice();
     public NasScreen(NasMenu menu, Inventory inventory, Component title) { super(menu, inventory, title); imageWidth = 284; imageHeight = 236; }
     private Component label(String key) { return Component.translatable("gui.itemexplorer." + key); }
     @Override protected void init() {
@@ -44,15 +42,15 @@ public final class NasScreen extends AbstractContainerScreen<NasMenu> {
         }
         if (seen != menu.view()) {
             seen = menu.view(); String message = seen.getString("Message");
-            if (!message.isEmpty()) { error = message; errorUntil = Util.getMillis() + 4500; }
+            if (!message.isEmpty()) notice.message(message, VanillaGui.Tone.ERROR, 4500);
         }
         renderBackground(g); super.render(g, mouseX, mouseY, partialTick); renderTooltip(g, mouseX, mouseY);
-        if (menu.view().getBoolean("Locked") || Util.getMillis() < errorUntil) {
-            var lines = font.split(Component.translatable("message.itemexplorer." + (menu.view().getBoolean("Locked") ? "storage_locked" : error)), 260);
-            int y = topPos + 130 - lines.size() * 10;
+        boolean locked = menu.view().getBoolean("Locked");
+        if (locked || notice.active()) {
+            Component message = locked ? Component.translatable("message.itemexplorer.storage_locked") : notice.text();
+            int height = VanillaGui.bannerHeight(font, message, 268);
             g.pose().pushPose(); g.pose().translate(0, 0, 300);
-            VanillaGui.panel(g, leftPos + 8, y - 4, 268, topPos + 138 - y);
-            for (var line : lines) { VanillaGui.panelString(g, font, line, leftPos + 12, y, 0xffa02020); y += 10; }
+            VanillaGui.banner(g, font, message, locked ? VanillaGui.Tone.ERROR : notice.tone(), leftPos + 8, topPos + 138 - height, 268);
             g.pose().popPose();
         }
         if (mouseX >= leftPos + 8 && mouseX < leftPos + 190 && mouseY >= topPos + 24 && mouseY < topPos + 140) {
@@ -70,7 +68,7 @@ public final class NasScreen extends AbstractContainerScreen<NasMenu> {
     @Override protected void renderLabels(GuiGraphics g, int x, int y) {}
     @Override protected void renderBg(GuiGraphics g, float partialTick, int mouseX, int mouseY) {
         VanillaGui.panel(g, leftPos, topPos, imageWidth, imageHeight);
-        VanillaGui.panelString(g, font, title, leftPos + 9, topPos + 9, 0xff303030);
+        VanillaGui.panelString(g, font, title, leftPos + 9, topPos + 9, VanillaGui.Tone.TEXT);
         ListTag bays = menu.view().getList("Bays", Tag.TAG_COMPOUND);
         for (int i = 0; i < 4; i++) {
             int y = topPos + 24 + i * 29;
@@ -79,11 +77,11 @@ public final class NasScreen extends AbstractContainerScreen<NasMenu> {
             ItemStack stack = ItemStack.of(bay.getCompound("Stack"));
             if (!stack.isEmpty()) g.renderItem(stack, leftPos + 12, y + 5);
             String name = (i + 1) + ". " + (stack.isEmpty() ? label("empty_bay").getString() : stack.getHoverName().getString());
-            VanillaGui.recessString(g, font, font.plainSubstrByWidth(name, 152), leftPos + 32, y + 3, 0xffeeeeee);
+            VanillaGui.recessString(g, font, VanillaGui.fit(font, name, 152), leftPos + 32, y + 3, 0xffeeeeee);
             String status = bay.getString("Status");
             String detail = status.equals("online") ? bay.getLong("Total") + " / " + bay.getLong("Capacity")
                     : Component.translatable("message.itemexplorer." + (status.isEmpty() ? "empty_bay" : status)).getString();
-            VanillaGui.recessString(g, font, font.plainSubstrByWidth(detail, 152), leftPos + 32, y + 15, 0xffd0d0d0);
+            VanillaGui.recessString(g, font, VanillaGui.fit(font, detail, 152), leftPos + 32, y + 15, 0xffd0d0d0);
         }
         var firstSlot = menu.slots.get(0);
         VanillaGui.playerInventory(g, leftPos + firstSlot.x, topPos + firstSlot.y);

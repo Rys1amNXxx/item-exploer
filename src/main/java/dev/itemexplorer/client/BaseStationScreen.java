@@ -95,23 +95,23 @@ public final class BaseStationScreen extends AbstractContainerScreen<BaseStation
 
     @Override protected void renderLabels(GuiGraphics graphics, int mouseX, int mouseY) {}
 
-    private void line(GuiGraphics g, Component text, int x, int y, int color, int maxWidth) {
-        VanillaGui.panelString(g, font, font.plainSubstrByWidth(text.getString(), maxWidth), leftPos + x, topPos + y, color);
+    private void line(GuiGraphics g, Component text, int x, int y, VanillaGui.Tone tone, int maxWidth) {
+        VanillaGui.panelString(g, font, VanillaGui.fit(font, text.getString(), maxWidth), leftPos + x, topPos + y, tone);
     }
 
     private void recessLine(GuiGraphics graphics, Component text, int offsetX, int offsetY, int color, int maxWidth) {
-        VanillaGui.recessString(graphics, font, font.plainSubstrByWidth(text.getString(), maxWidth), leftPos + offsetX, topPos + offsetY, color);
+        VanillaGui.recessString(graphics, font, VanillaGui.fit(font, text.getString(), maxWidth), leftPos + offsetX, topPos + offsetY, color);
     }
 
     @Override protected void renderBg(GuiGraphics g, float partialTick, int mouseX, int mouseY) {
         VanillaGui.panel(g, leftPos, topPos, imageWidth, imageHeight);
-        line(g, title, 10, 12, 0xff25343c, imageWidth - 198);
+        line(g, title, 10, 12, VanillaGui.Tone.TEXT, imageWidth - 198);
         if (guide) {
             drawGuide(g);
             return;
         }
         if (!menu.ready()) {
-            line(g, label("loading"), 11, 38, 0xff485961, imageWidth - 22);
+            line(g, label("loading"), 11, 38, VanillaGui.Tone.MUTED, imageWidth - 22);
             return;
         }
         if (chunkPage) {
@@ -119,19 +119,19 @@ public final class BaseStationScreen extends AbstractContainerScreen<BaseStation
             return;
         }
         line(g, label(menu.complete() ? "complete" : "incomplete"), 11, 36,
-                menu.complete() ? 0xff286539 : 0xff953c30, imageWidth - 22);
-        line(g, label("count", menu.matched(), BaseStationStructure.TOTAL_PARTS), 11, 49, 0xff35434b, imageWidth - 22);
+                menu.complete() ? VanillaGui.Tone.SUCCESS : VanillaGui.Tone.ERROR, imageWidth - 22);
+        line(g, label("count", menu.matched(), BaseStationStructure.TOTAL_PARTS), 11, 49, VanillaGui.Tone.TEXT, imageWidth - 22);
         line(g, Component.translatable(menu.cable().status().key()), 11, 62,
-                menu.cable().status() == StationConnection.Status.CONNECTED ? 0xff286539 : 0xff53636b, imageWidth - 22);
+                menu.cable().status() == StationConnection.Status.CONNECTED ? VanillaGui.Tone.SUCCESS : VanillaGui.Tone.MUTED, imageWidth - 22);
         if (menu.complete()) {
             line(g, Component.translatable("gui.itemexplorer.cable_counts", menu.cable().cables(), menu.cable().terminals()),
-                    11, 78, 0xff53636b, imageWidth - 22);
+                    11, 78, VanillaGui.Tone.MUTED, imageWidth - 22);
             int y = 100;
             for (var line : font.split(label("ready_hint"), imageWidth - 32)) {
-                VanillaGui.panelString(g, font, line, leftPos + 16, topPos + y, 0xff35434b);
+                VanillaGui.panelString(g, font, line, leftPos + 16, topPos + y, VanillaGui.Tone.TEXT);
                 y += 12;
             }
-            line(g, label("no_power"), 11, imageHeight - 22, 0xff53636b, imageWidth - 22);
+            line(g, label("no_power"), 11, imageHeight - 22, VanillaGui.Tone.MUTED, imageWidth - 22);
             return;
         }
         List<BaseStationStructure.Issue> issues = menu.issues();
@@ -147,7 +147,7 @@ public final class BaseStationScreen extends AbstractContainerScreen<BaseStation
         }
         int pages = Math.max(1, (issues.size() + rows - 1) / rows);
         Component pageLabel = label("page", page + 1, pages);
-        VanillaGui.panelString(g, font, pageLabel, leftPos + (imageWidth - font.width(pageLabel)) / 2, topPos + imageHeight - 20, 0xff35434b);
+        VanillaGui.panelString(g, font, pageLabel, leftPos + (imageWidth - font.width(pageLabel)) / 2, topPos + imageHeight - 20, VanillaGui.Tone.TEXT);
     }
 
     private static String partId(BaseStationStructure.Part part) {
@@ -168,35 +168,35 @@ public final class BaseStationScreen extends AbstractContainerScreen<BaseStation
         if ("off".equals(status) && menu.complete() && view.getInt("ModuleCount") == 0) status = "no_module";
         boolean active = view.getBoolean("Active");
         line(g, label("chunk_status_" + status), 11, 36,
-                active ? 0xff286539 : "off".equals(status) ? 0xff53636b : 0xff953c30, imageWidth - 22);
-        line(g, label("chunk_range"), 11, 51, 0xff35434b, imageWidth - 22);
+                active ? VanillaGui.Tone.SUCCESS : "off".equals(status) ? VanillaGui.Tone.MUTED : VanillaGui.Tone.ERROR, imageWidth - 22);
+        line(g, label("chunk_range"), 11, 51, VanillaGui.Tone.TEXT, imageWidth - 22);
         for (int z = 0; z < 3; z++) for (int x = 0; x < 3; x++) {
             int px = leftPos + 12 + x * 18, py = topPos + 70 + z * 18;
             boolean center = x == 1 && z == 1;
             g.fill(px, py, px + 16, py + 16, center ? 0xffa78036 : active ? 0xff478f91 : 0xff75818b);
             if (center) g.drawCenteredString(font, Component.literal("C"), px + 8, py + 4, 0xfffaf9f1);
         }
-        line(g, label("chunk_modules", view.getInt("ModuleCount")), 77, 71, 0xff35434b, imageWidth - 88);
+        line(g, label("chunk_modules", view.getInt("ModuleCount")), 77, 71, VanillaGui.Tone.TEXT, imageWidth - 88);
         line(g, label("chunk_budget", view.getInt("ActiveStations"), view.getInt("MaxStations")),
-                77, 85, 0xff53636b, imageWidth - 88);
+                77, 85, VanillaGui.Tone.MUTED, imageWidth - 88);
         int y = 100;
         for (var text : font.split(label("chunk_coverage_hint"), imageWidth - 88)) {
             if (y > 122) break;
-            VanillaGui.panelString(g, font, text, leftPos + 77, topPos + y, 0xff35434b);
+            VanillaGui.panelString(g, font, text, leftPos + 77, topPos + y, VanillaGui.Tone.TEXT);
             y += 11;
         }
         int minX = ((menu.position().getX() >> 4) - 1) << 4;
         int minZ = ((menu.position().getZ() >> 4) - 1) << 4;
-        line(g, label("chunk_bounds_x", minX, minX + 47), 11, 134, 0xff53636b, imageWidth - 22);
-        line(g, label("chunk_bounds_z", minZ, minZ + 47), 11, 146, 0xff53636b, imageWidth - 22);
+        line(g, label("chunk_bounds_x", minX, minX + 47), 11, 134, VanillaGui.Tone.MUTED, imageWidth - 22);
+        line(g, label("chunk_bounds_z", minZ, minZ + 47), 11, 146, VanillaGui.Tone.MUTED, imageWidth - 22);
     }
 
     private void drawGuide(GuiGraphics g) {
-        line(g, label("dimensions"), 11, 36, 0xff35434b, imageWidth - 22);
+        line(g, label("dimensions"), 11, 36, VanillaGui.Tone.TEXT, imageWidth - 22);
         int step = (imageWidth - 24) / 5;
         for (int layer = 0; layer < 5; layer++) {
             int x = 12 + layer * step;
-            line(g, label("layer", layer + 1), x, 54, 0xff35434b, step - 2);
+            line(g, label("layer", layer + 1), x, 54, VanillaGui.Tone.TEXT, step - 2);
             for (int z = 0; z < 3; z++) for (int col = 0; col < 3; col++) {
                 char symbol = LAYERS[layer][z].charAt(col);
                 int cx = leftPos + x + col * 12, cy = topPos + 68 + z * 12;
@@ -204,13 +204,13 @@ public final class BaseStationScreen extends AbstractContainerScreen<BaseStation
                 if (symbol != '.') g.drawString(font, String.valueOf(symbol), cx + 3, cy + 2, 0xfffaf9f1, false);
             }
         }
-        line(g, label("front_hint"), 11, 111, 0xff53636b, imageWidth - 22);
+        line(g, label("front_hint"), 11, 111, VanillaGui.Tone.MUTED, imageWidth - 22);
         String[] keys = {"legend_base", "legend_tower", "module_hint", "legend_empty", "rotation_hint"};
         int y = 128;
         for (String key : keys) {
             for (var line : font.split(label(key), imageWidth - 24)) {
                 if (y + 9 > imageHeight - 8) return;
-                VanillaGui.panelString(g, font, line, leftPos + 12, topPos + y, 0xff35434b);
+                VanillaGui.panelString(g, font, line, leftPos + 12, topPos + y, VanillaGui.Tone.TEXT);
                 y += 11;
             }
             y += 3;

@@ -23,7 +23,8 @@ import java.util.UUID;
 /** Compact sending and receiver settings share the existing terminal container. */
 public final class RemoteTransferScreen extends Screen {
     private static final UUID NO_TARGET = new UUID(0, 0);
-    private static final int ROWS = 3, PANEL_HEIGHT = 238, TEXT = 0xff303b42, MUTED = 0xff52626a;
+    private static final int ROWS = 3, PANEL_HEIGHT = 238;
+    private static final VanillaGui.Tone TEXT = VanillaGui.Tone.TEXT, MUTED = VanillaGui.Tone.MUTED;
     private final StorageScreen parent;
     private final StorageMenu menu;
     private final int entry;
@@ -225,11 +226,10 @@ public final class RemoteTransferScreen extends Screen {
                 .append("\n").append(label(target.getBoolean("Local") ? "local" : "remote"));
     }
     private String fit(String text, int maxWidth) {
-        if (font.width(text) <= maxWidth) return text;
-        return font.plainSubstrByWidth(text, Math.max(0, maxWidth - font.width("…"))) + "…";
+        return VanillaGui.fit(font, text, maxWidth);
     }
-    private void line(GuiGraphics g, Component text, int x, int y, int maxWidth, int color) {
-        VanillaGui.panelString(g, font, fit(text.getString(), maxWidth), left + x, top + y, color);
+    private void line(GuiGraphics g, Component text, int x, int y, int maxWidth, VanillaGui.Tone tone) {
+        VanillaGui.panelString(g, font, fit(text.getString(), maxWidth), left + x, top + y, tone);
     }
     private Component summary() {
         CompoundTag target = target();
@@ -352,7 +352,7 @@ public final class RemoteTransferScreen extends Screen {
             Component count = stock < 0 ? label("stock_unavailable") : label("stock", stock);
             int stockWidth = Math.min(112, font.width(count));
             line(g, sample.getHoverName(), 31, 31, panelWidth - stockWidth - 49, TEXT);
-            line(g, count, panelWidth - stockWidth - 10, 31, stockWidth, stock < 0 ? 0xff943e32 : MUTED);
+            line(g, count, panelWidth - stockWidth - 10, 31, stockWidth, stock < 0 ? VanillaGui.Tone.ERROR : MUTED);
         } else line(g, label("select_item_short"), 10, 31, panelWidth - 20, MUTED);
         line(g, label("targets_page", targetPage + 1, targetPages()), 10, 51, panelWidth - 126, TEXT);
         if (targetList.isEmpty()) {
@@ -374,7 +374,7 @@ public final class RemoteTransferScreen extends Screen {
         if (settingsPage) drawSettings(g); else drawSend(g);
         Component status = !settingsPage && !sameContext() ? label("context_changed")
                 : Util.getMillis() < feedbackUntil ? feedback : Component.empty();
-        line(g, status, 10, 200, panelWidth - 20, feedbackSuccess && (settingsPage || sameContext()) ? 0xff286539 : 0xff953c30);
+        line(g, status, 10, 200, panelWidth - 20, feedbackSuccess && (settingsPage || sameContext()) ? VanillaGui.Tone.SUCCESS : VanillaGui.Tone.ERROR);
         super.render(g, mouseX, mouseY, partialTick);
         if (settingsPage && inside(mouseX, mouseY, 10, 65, panelWidth - 20, 40))
             g.renderTooltip(font, Component.literal(destination(config())), mouseX, mouseY);

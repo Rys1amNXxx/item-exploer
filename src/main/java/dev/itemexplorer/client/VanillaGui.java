@@ -12,6 +12,15 @@ final class VanillaGui {
     private static final ResourceLocation CONTAINER = new ResourceLocation("minecraft", "textures/gui/container/crafting_table.png");
     private static volatile GuiPalette palette = GuiPalette.DEFAULT;
 
+    /** Text roles shared by every screen. Status tones keep their hue when a theme forces a contrast fix. */
+    enum Tone {
+        TEXT(0xff303030), MUTED(0xff505050), SUCCESS(0xff286539), WARNING(0xff8a5a12), ERROR(0xffa02020);
+
+        final int color;
+        Tone(int color) { this.color = color; }
+        boolean neutral() { return this == TEXT || this == MUTED; }
+    }
+
     private VanillaGui() {}
 
     static void reload(ResourceManager resources) {
@@ -67,6 +76,50 @@ final class VanillaGui {
         return readable(preferred, composite(overlay, background));
     }
 
+    static int panelText(Tone tone) {
+        return tone.neutral() ? panelText(tone.color) : tinted(tone.color, palette.panel().background());
+    }
+
+    static int recessText(Tone tone) {
+        int background = composite(palette.recess().background(), palette.panel().background());
+        return tone.neutral() ? readable(tone.color, background) : tinted(tone.color, background);
+    }
+
+    static void panelString(GuiGraphics graphics, Font font, String text, int x, int y, Tone tone) {
+        int color = panelText(tone); graphics.drawString(font, text, x, y, color, shadow(color));
+    }
+
+    static void panelString(GuiGraphics graphics, Font font, Component text, int x, int y, Tone tone) {
+        int color = panelText(tone); graphics.drawString(font, text, x, y, color, shadow(color));
+    }
+
+    static void panelString(GuiGraphics graphics, Font font, FormattedCharSequence text, int x, int y, Tone tone) {
+        int color = panelText(tone); graphics.drawString(font, text, x, y, color, shadow(color));
+    }
+
+    static void recessString(GuiGraphics graphics, Font font, String text, int x, int y, Tone tone) {
+        int color = recessText(tone); graphics.drawString(font, text, x, y, color, shadow(color));
+    }
+
+    /** Cuts at a glyph boundary and marks the cut, so a shortened label never passes for the whole name. */
+    static String fit(Font font, String text, int width) {
+        if (font.width(text) <= width) return text;
+        return font.plainSubstrByWidth(text, Math.max(0, width - font.width("..."))) + "...";
+    }
+
+    static int bannerHeight(Font font, Component text, int width) {
+        return font.split(text, width - 18).size() * font.lineHeight + 12;
+    }
+
+    /** A raised message panel with a stripe in the tone's color; bannerHeight gives its size for anchoring. */
+    static void banner(GuiGraphics graphics, Font font, Component text, Tone tone, int left, int top, int width) {
+        var lines = font.split(text, width - 18);
+        int height = lines.size() * font.lineHeight + 12;
+        panel(graphics, left, top, width, height);
+        graphics.fill(left + 4, top + 4, left + 6, top + height - 4, panelText(tone));
+        for (int i = 0; i < lines.size(); i++) panelString(graphics, font, lines.get(i), left + 10, top + 6 + i * font.lineHeight, tone);
+    }
+
     static void panelString(GuiGraphics graphics, Font font, String text, int x, int y, int preferred) {
         int color = panelText(preferred); graphics.drawString(font, text, x, y, color, shadow(color));
     }
@@ -104,6 +157,31 @@ final class VanillaGui {
         double lightest = luminance(composite(background, 0xffffffff));
         if (contrast(preferred, darkest, lightest) >= 4.5) return preferred;
         return contrast(0xff101010, darkest, lightest) > contrast(0xfff5f5f5, darkest, lightest) ? 0xff101010 : 0xfff5f5f5;
+    }
+
+    /**
+     * Like readable(), but first slides the color toward black or white, so a green or red status that is too
+     * light for the panel stays green or red instead of collapsing to the neutral fallback.
+     */
+    private static int tinted(int preferred, int background) {
+        double darkest = luminance(composite(background, 0xff000000));
+        double lightest = luminance(composite(background, 0xffffffff));
+        if (contrast(preferred, darkest, lightest) >= 4.5) return preferred;
+        int target = contrast(0xff101010, darkest, lightest) > contrast(0xfff5f5f5, darkest, lightest) ? 0xff000000 : 0xffffffff;
+        for (int step = 1; step < 10; step++) {
+            int mixed = mix(preferred, target, step / 10.0);
+            if (contrast(mixed, darkest, lightest) >= 4.5) return mixed;
+        }
+        return readable(preferred, background);
+    }
+
+    private static int mix(int from, int to, double amount) {
+        int result = 0xff000000;
+        for (int shift = 0; shift <= 16; shift += 8) {
+            int a = from >>> shift & 255, b = to >>> shift & 255;
+            result |= (int) Math.round(a + (b - a) * amount) << shift;
+        }
+        return result;
     }
 
     private static double contrast(int foreground, double darkest, double lightest) {
