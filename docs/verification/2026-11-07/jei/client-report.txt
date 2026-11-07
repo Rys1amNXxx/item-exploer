@@ -1,0 +1,9 @@
+JEI 15.20 terminal acceptance
+SCREENSHOT jei-fixed-recipe.png
+PASS actual JEI + -> packet -> fixed terminal: one shaped set, old grid returned, result preview only
+SCREENSHOT jei-fixed-filled.png
+SCREENSHOT jei-missing-materials.png
+SCREENSHOT jei-full-inventory.png
+PASS missing-material and full-backpack transfers are rejected by the real JEI UI
+SCREENSHOT jei-portable-filled.png
+PASS portable JEI +, authoritative server inventory, locked device, offline backpack crafting, storage untouched

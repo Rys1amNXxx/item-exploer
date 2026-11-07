@@ -1,0 +1,28 @@
+// Run together with jei-test.init.gradle and -PwithJei.
+gradle.beforeProject { p -> p.afterEvaluate {
+    def probe = p.file('work/jei-integration/client')
+    def run = p.minecraft.runs.client
+    run.workingDirectory = probe
+    run.property 'itemexplorer.jeiClientProbe', probe.absolutePath
+    run.jvmArgs '-Xms256m', '-Xmx1536m'
+    run.mods.itemexplorer.source p.sourceSets.gametest
+    run.args '--username', 'JeiProbe', '--width', '1280', '--height', '720', '--quickPlaySingleplayer', 'JEI Probe'
+    p.tasks.matching { it.name == 'runClient' }.configureEach {
+        doFirst {
+            def world = new File(probe, 'saves/JEI Probe')
+            if (!new File(world, 'level.dat').isFile()) {
+                def seed = p.file('work/production-client/saves/Production Probe/level.dat')
+                if (!seed.isFile()) throw new GradleException('Prepare the disposable Production Probe fixture first')
+                p.copy { from seed; into world }
+            }
+            new File(probe, 'options.txt').setText('lang:zh_cn\nguiScale:2\npauseOnLostFocus:false\nrenderDistance:4\nsimulationDistance:5\nfullscreen:false\n', 'UTF-8')
+            def result = new File(probe, 'result.txt')
+            if (result.exists() && !result.delete()) throw new GradleException('Cannot clear JEI probe result')
+        }
+        doLast {
+            def result = new File(probe, 'result.txt')
+            if (!result.isFile() || result.getText('UTF-8').trim() != 'PASS')
+                throw new GradleException('JEI client acceptance failed; inspect work/jei-integration/client/report.txt')
+        }
+    }
+} }

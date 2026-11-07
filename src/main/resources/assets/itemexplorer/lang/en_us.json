@@ -535,5 +535,6 @@
   "gui.itemexplorer.production_supply_total": "top up to %s",
   "gui.itemexplorer.production_optional_total": "up to %s",
   "message.itemexplorer.production_endpoint_unavailable": "The chosen endpoint does not expose an accessible item handler on this side.",
-  "message.itemexplorer.production_invalid_slot": "The chosen slot does not exist on this endpoint's side."
+  "message.itemexplorer.production_invalid_slot": "The chosen slot does not exist on this endpoint's side.",
+  "gui.itemexplorer.jei_return_space": "Make room in your inventory to return the items currently in the crafting grid."
 }

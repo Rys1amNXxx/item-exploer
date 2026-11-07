@@ -535,5 +535,6 @@
   "gui.itemexplorer.production_supply_total": "补足至 %s",
   "gui.itemexplorer.production_optional_total": "最多 %s",
   "message.itemexplorer.production_endpoint_unavailable": "选中端点的此面没有开放可用的物品接口。",
-  "message.itemexplorer.production_invalid_slot": "选中端点的此面不存在该槽位。"
+  "message.itemexplorer.production_invalid_slot": "选中端点的此面不存在该槽位。",
+  "gui.itemexplorer.jei_return_space": "请先腾出背包空间，以便归还当前合成格中的材料。"
 }

@@ -136,6 +136,12 @@ public final class StorageMenu extends AbstractContainerMenu {
         return portableMode && menuSlot >= 0 && menuSlot < PLAYER_SLOT_COUNT
                 && slots.get(menuSlot).getContainerSlot() == lockedInventorySlot;
     }
+    /** Backpack sources/return destinations for recipe transfer, excluding the active handheld. */
+    public List<Slot> craftingInventorySlots() {
+        List<Slot> result = new ArrayList<>(PLAYER_SLOT_COUNT);
+        for (int i = 0; i < PLAYER_SLOT_COUNT; i++) if (!lockedSlot(i)) result.add(slots.get(i));
+        return List.copyOf(result);
+    }
     public CompoundTag view() { return clientView; }
     public void acceptView(CompoundTag view) { clientView = view.copy(); }
     public int currentFolder() { return currentFolder; }

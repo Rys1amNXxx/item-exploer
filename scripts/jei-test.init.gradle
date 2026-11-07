@@ -1,0 +1,7 @@
+// Opt-in JEI implementation tests. Test classes and JEI itself are never bundled in the release JAR.
+gradle.beforeProject { p -> p.afterEvaluate {
+    if (!p.hasProperty('withJei')) throw new GradleException('Use -PwithJei with the JEI acceptance script')
+    p.dependencies.add('gametestImplementation', p.fg.deobf("mezz.jei:jei-${p.minecraft_version}-forge:${p.jei_version}"))
+    p.sourceSets.gametest.java.srcDir 'src/jeiTest/java'
+    p.minecraft.runs.gameTestServer.workingDirectory = p.file(p.findProperty('jeiTestDirectory') ?: 'work/jei-integration/gametest')
+} }
