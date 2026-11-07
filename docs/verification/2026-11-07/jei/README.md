@@ -58,7 +58,7 @@ gradle.beforeProject { p -> p.afterEvaluate {
 
 ## 安装包与限制
 
-产物：`build/libs/itemexplorer-1.20.1-0.5.1.jar`。未修改网络协议或存档格式；未发布新 Release。
+本页记录接入阶段产物：`build/libs/itemexplorer-1.20.1-0.5.1.jar`。该阶段未修改网络协议或存档格式，尚未发布新 Release；后续正式版本见 [0.5.2 发布验收](../release-v0.5.2.md)。
 
 已检查 JAR 包含 JEI 兼容入口，不包含 JEI 本体、GameTest 或客户端验收代码。
 

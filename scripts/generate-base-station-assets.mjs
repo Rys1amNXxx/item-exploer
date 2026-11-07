@@ -116,10 +116,15 @@ write(assets + 'models/block/' + id('network_led') + '.json', {
 });
 // A recessed panel with nine raised tiles distinguishes the 3x3 chunk module.
 // It shares the station's reviewed textures; the center tile marks its controller chunk.
-const chunkBody = structuredClone(full);
-chunkBody.from[2] = 0.25;
-chunkBody.faces.north = { texture: '#front', uv: [0, 0, 16, 16] };
-const chunkElements = [chunkBody];
+// Keep the outer shell flush with neighboring blocks, while the front stays recessed.
+// Individual surface elements do not falsely enclose the raised front tiles as solids.
+const chunkElements = ['east', 'south', 'west', 'up', 'down'].map(direction => {
+  const [axis, at] = { east: [0, 16], south: [2, 16], west: [0, 0], up: [1, 16], down: [1, 0] }[direction];
+  const from = [...full.from], to = [...full.to];
+  from[axis] = to[axis] = at;
+  return { from, to, faces: { [direction]: structuredClone(full.faces[direction]) } };
+});
+chunkElements.push(plane([0, 0, 0.25], [16, 16, 0.25], 'north', 'front', [0, 0, 16, 16]));
 for (let row = 0; row < 3; row++) for (let col = 0; col < 3; col++) {
   const x = 3.5 + col * 3.25, y = 3.5 + row * 3.25;
   const tile = cuboid([x, y, 0], [x + 2.5, y + 2.5, 0.125], 'metal', ['north', 'east', 'south', 'west', 'up', 'down'], [0, 0, 2.5, 2.5]);
