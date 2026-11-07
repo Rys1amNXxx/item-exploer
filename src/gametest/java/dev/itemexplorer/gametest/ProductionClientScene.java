@@ -238,7 +238,7 @@ public final class ProductionClientScene {
             }
             case 3 -> { if (pickMaterial(screen, "铁矿石", inputEntry, "production-ingredient-search.png")) advanceEditor(4); }
             case 4 -> { clickWidget(screen, "materialFolder"); advanceEditor(5); }
-            case 5 -> { if (pick(screen, "原料", inputFolder, null)) advanceEditor(6); }
+            case 5 -> { if (pick(screen, "原料", inputFolder, "production-input-folder-search.png")) advanceEditor(6); }
             case 6 -> { clickGrid(screen, false, 1); advanceEditor(7); }
             case 7 -> { if (pickMaterial(screen, "煤炭", fuelEntry, null)) advanceEditor(8); }
             case 8 -> { clickWidget(screen, "materialFolder"); advanceEditor(9); }

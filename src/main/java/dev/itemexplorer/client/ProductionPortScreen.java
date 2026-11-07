@@ -685,7 +685,17 @@ public final class ProductionPortScreen extends AbstractContainerScreen<Producti
     private void line(GuiGraphics g, Component text, int x, int y, int width) { line(g, text, x, y, width, VanillaGui.Tone.TEXT); }
     private void line(GuiGraphics g, Component text, int x, int y, int width, VanillaGui.Tone tone) { VanillaGui.panelString(g, font, VanillaGui.fit(font, text.getString(), width), leftPos + x, topPos + y, tone); }
     @Override protected void renderBg(GuiGraphics g, float partialTick, int mouseX, int mouseY) {
-        VanillaGui.panel(g, leftPos, topPos, imageWidth, imageHeight); line(g, label("name"), 10, 11, 31);
+        VanillaGui.panel(g, leftPos, topPos, imageWidth, imageHeight);
+        if (pickerOpen) {
+            // Main widgets are hidden too. Do not draw their labels/items behind the picker:
+            // font and item depth can otherwise put them in front of its panel.
+            g.fill(leftPos, topPos, leftPos + imageWidth, topPos + imageHeight, 0xa0000000);
+            VanillaGui.panel(g, leftPos + 10, topPos + 13, 300, 216);
+            line(g, pickerTitle, 21, 24, 278);
+            if (pickerResults.isEmpty()) line(g, label("no_matches"), 24, 80, 270);
+            return;
+        }
+        line(g, label("name"), 10, 11, 31);
         if (page == 0) {
             line(g, label(generic() ? "inputs" : "vanilla_input", patternInputs.size()), 24, 74, 125); line(g, label(generic() ? "outputs" : "derived_output", patternOutputs.size()), 214, 74, 96);
             line(g, Component.literal("→"), 153, 112, 20); line(g, label("per_batch"), 131, 97, 64);
@@ -710,7 +720,6 @@ public final class ProductionPortScreen extends AbstractContainerScreen<Producti
             line(g, label(pattern ? "batch_note" : brewing ? "brewing_supplies_note" : "fuel_estimate_note"), 10, 193, 300);
         }
         Status status = status(); line(g, status.text(), 10, 203, 300, status.tone());
-        if (pickerOpen) { g.fill(leftPos, topPos, leftPos + 320, topPos + 238, 0xa0000000); VanillaGui.panel(g, leftPos + 10, topPos + 13, 300, 216); line(g, pickerTitle, 21, 24, 278); if (pickerResults.isEmpty()) line(g, label("no_matches"), 24, 80, 270); }
     }
     private void renderTotals(GuiGraphics g, boolean output) {
         List<TotalRow> rows = totals(output); int scroll = output ? outputScroll : inputScroll, x = output ? 164 : 10;
